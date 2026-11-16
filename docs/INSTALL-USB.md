@@ -178,11 +178,58 @@ build\agent\mtpagent.exe
 - 普通のクリックの確定が最大 0.15 秒遅れる。気になる場合はメニューで Force Touch をオフにすると、押した瞬間に左ボタンを送る
 - 押した・離したときの「カチッ」はトラックパッド本体の振動。Force Touch の振動は、押し込んだ直後に加わる重い「ブルッ」
 
+## 7. 管理者権限のウィンドウでも使えるようにする（UIAccess 版の導入）
+
+普通の `mtpagent.exe` は、管理者権限で動いているウィンドウ（タスクマネージャーなど）に入力を送れない。
+**UIAccess 版**を `C:\Program Files\MTP` に入れると送れるようになる（画面読み上げソフトなどと同じ仕組み）。
+Windows は、UIAccess 版を「信頼された証明書で署名され、保護されたフォルダーに置かれている」ときだけ起動する。
+
+1. トレイのメニューの「終了」で常駐アプリを止める
+2. ビルドする（管理者権限は不要）
+
+   ```bat
+   agent\build.cmd
+   settings\build.cmd
+   ```
+
+   `build\agent\install\mtpagent.exe` が UIAccess 版（署名前なので、このままでは起動できない）
+
+3. 証明書をこの PC で信頼する（**セキュリティ設定の変更**。手順 3 を済ませていれば不要）。
+   **管理者権限の PowerShell** で、リポジトリのルートから:
+
+   ```powershell
+   certutil -addstore Root build\MtpTest.cer
+   ```
+
+   手順 3 は WinUSB の導入には必要なかった（2026-11-16、未登録のまま導入できた）が、UIAccess には必須。
+   この証明書で署名したものは、この PC で信頼される。秘密鍵（証明書ストアの「MTP Test Signing」）は他へ出さない
+
+4. 同じ管理者権限の PowerShell で導入する（署名・確認・コピー）
+
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File install\install.ps1
+   ```
+
+   証明書が見つからないと言われたら、手順 2 を実行した PowerShell（のユーザー）で実行しているか確かめる
+
+5. **普段の画面で**（管理者として実行しない）、エクスプローラーから `C:\Program Files\MTP\mtpagent.exe` を起動する。
+   ログオン時に起動を使う場合は、トレイのメニューの「ログオン時に起動」を一度クリックして、登録先を新しい場所に変える
+6. UIAccess が効いているか確かめる（管理者権限は不要）
+
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File install\check_uiaccess.ps1
+   ```
+
+   `path = C:\Program Files\MTP\mtpagent.exe`、`uiAccess = True`、`elevated = False` なら成功
+
+取り除くときは、常駐アプリと設定画面を終了してから、管理者権限の PowerShell で
+`powershell -ExecutionPolicy Bypass -File install\uninstall.ps1`（WinUSB・証明書・設定は残る）。
+
 ### できないこと（Windows の仕様）
 
 - **ログオン画面とロック画面では動かない**。WinUSB を当てた MI_01 は Windows のマウスとしては扱われず、
   常駐アプリはログオン後に起動し、保護された画面へは入力を送れないため。これらの画面では内蔵タッチパッドかキーボードを使う
-- 管理者権限で動いているウィンドウ（タスクマネージャーなど）には入力が届かない
+- 管理者権限で動いているウィンドウ（タスクマネージャーなど）には、普通の `mtpagent.exe` からは入力が届かない（手順 7 の UIAccess 版で解決する）
 
 ## 元に戻す
 

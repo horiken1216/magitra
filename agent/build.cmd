@@ -40,3 +40,12 @@ rem Tray version (everyday use, no console window)
 cl %CFLAGS% /D UNICODE /D _UNICODE "%~dp0mtpagent_tray.c" %COMMON% /Fo"%OUT%\tray\\" /Fe"%OUT%\mtpagent.exe" ^
   /link /SUBSYSTEM:WINDOWS winusb.lib cfgmgr32.lib user32.lib hid.lib shell32.lib advapi32.lib || exit /b 1
 echo Built: %OUT%\mtpagent.exe
+
+rem Tray version for installation (uiAccess=true): can send input to elevated windows.
+rem Windows starts a uiAccess program only if it is signed by a trusted certificate and placed in a secure
+rem location such as Program Files, so this one cannot run from the build folder. Use install\install.ps1.
+if not exist "%OUT%\install" mkdir "%OUT%\install"
+link /nologo /SUBSYSTEM:WINDOWS /MANIFEST:EMBED /MANIFESTUAC:"level='asInvoker' uiAccess='true'" ^
+  /OUT:"%OUT%\install\mtpagent.exe" "%OUT%\tray\*.obj" ^
+  winusb.lib cfgmgr32.lib user32.lib hid.lib shell32.lib advapi32.lib || exit /b 1
+echo Built: %OUT%\install\mtpagent.exe (uiAccess, unsigned)
