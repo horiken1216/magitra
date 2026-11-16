@@ -219,7 +219,7 @@ namespace Mtp
             StackPanel sideStack = new StackPanel();
             sideStack.Children.Add(new TextBlock
             {
-                Text = "Magic Trackpad 2",
+                Text = "Magic Trackpad",
                 FontSize = 18,
                 FontWeight = FontWeights.SemiBold,
                 Margin = new Thickness(20, 22, 20, 4)

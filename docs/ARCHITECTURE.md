@@ -5,7 +5,7 @@
 取得元: https://github.com/imbushuo/mac-precision-touchpad（最終コミット 2022-03-14、`29d2778`）
 配置: `third_party/mac-precision-touchpad`
 
-### Magic Trackpad 2 (BT/USB) を扱うのは `AmtPtpHidFilter`
+### Magic Trackpad (BT/USB) を扱うのは `AmtPtpHidFilter`
 - Col01（マウス）に `mshidkmdf` を機能ドライバー、自身を LowerFilter として入れ、PTP（Precision Touchpad）の記述子を返す
 - 起動時に `F1 02 01`（BT）または `02 01 00 00`（USB）を送ってマルチタッチモードへ切り替える
 - 下位から生レポートを読み、PTP レポートに変換する（指 9 バイト/本。X は 13bit、Y は符号付き、Pressure 1 バイト、TouchMajor/Minor、ContactID）
@@ -26,7 +26,7 @@
 ## 2. 推奨方針: 公開 API だけで自前ドライバーを書く（OSS はプロトコル資料として参照）
 
 ```
-[Magic Trackpad 2]
+[Magic Trackpad]
    │ BT (L2CAP PSM 0x11/0x13)        │ USB (Interface 1, Interrupt IN)
    ▼                                  ▼
  MtpBth.sys (KMDF)                  MtpUsb (UMDF2 or KMDF)

@@ -1,9 +1,13 @@
-# Magic Trackpad 2 プローブ結果（2026-11-16）
+# Magic Trackpad プローブ結果（2026-11-16）
 
 ## デバイス
-- Magic Trackpad 2、PID 0x0265
+- Magic Trackpad（Lightning、2021 年の第 3 世代）、PID 0x0265
+  - BT の表示名・HID の製品名はどちらも「Magic Trackpad」（「2」が付かない）。
+    PID 0x0265 は 2015 年の Magic Trackpad 2 と共通なので、PID だけでは区別できない
+  - 当初は PID と Linux の呼び名から「Magic Trackpad 2」と書いていた。2026-11-16 に呼び名を改めた
 - BT: VID 0x004C（BTHENUM / hidbth 経由）
-- USB: VID 0x05AC（未検証。充電専用ケーブルでは認識されなかった）
+- USB: VID 0x05AC（充電専用ケーブルでは認識されなかった。データ通信用ケーブルでの結果は「USB 接続時」）
+- USB-C の第 4 世代（PID 0x0324）は手元になく、未確認（docs/INSTALL-USB.md「対応機種」）
 
 ## BT 接続時に Windows が公開している HID コレクション
 | コレクション | Usage | 入力 | 出力 | フィーチャー | 備考 |

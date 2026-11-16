@@ -28,6 +28,8 @@ import time
 
 import hid
 
+from mtp_ids import PID_USBC, PIDS, VID_USB, is_trackpad
+
 TEMPLATE = bytes([0x53, 0x01, 0x15, 0x6C, 0x02, 0x00, 0x21, 0x2B, 0x06, 0x01, 0x00, 0x16, 0x41, 0x13])
 STRENGTH_INDEX = (2, 5, 10)
 STRENGTH_LIMIT = (0x30, 0x20, 0x40)
@@ -64,12 +66,24 @@ def main() -> None:
     prompt = not args.no_prompt and sys.stdin.isatty()
 
     path = None
-    for d in hid.enumerate(0x05AC, 0x0265):
+    found_pid = None
+    for d in [x for pid in PIDS for x in hid.enumerate(VID_USB, pid)]:
         if d["interface_number"] == 2 and d["usage_page"] == 0xFF00 and d["usage"] == 0x0D:
             path = d["path"]
+            found_pid = d["product_id"]
     if path is None:
         print("Actuator (USB MI_02, 0xFF00/0x0D) が見つかりません。USB で接続されていますか？")
         return
+    if found_pid == PID_USBC:
+        # テンプレートは PID 0x0265 で確かめたもの。USB-C 版で同じ中身が通じるかは未確認
+        print("注意: USB-C 版（PID 0x0324）の Actuator です。この振動レポートが USB-C 版で同じ意味かは確かめていません。")
+        if sys.stdin.isatty():
+            if input("それでも送る場合は yes と入力: ").strip().lower() != "yes":
+                print("送らずに終了しました")
+                return
+        else:
+            print("確認できないため送らずに終了します（ターミナルから実行してください）")
+            return
 
     if args.strength:
         parts = [int(p, 16) for p in args.strength.split(",")]

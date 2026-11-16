@@ -4,6 +4,8 @@ from ctypes import wintypes
 
 import hid
 
+from mtp_ids import PIDS, VID_USB, is_trackpad
+
 hid_dll = ctypes.WinDLL("hid.dll")
 k32 = ctypes.WinDLL("kernel32.dll", use_last_error=True)
 
@@ -87,7 +89,7 @@ def dump(path: str) -> None:
 
 def main() -> None:
     for d in hid.enumerate():
-        if d["vendor_id"] in (0x004C, 0x05AC) and d["product_id"] == 0x0265:
+        if is_trackpad(d):
             print(f"usage_page=0x{d['usage_page']:04X} usage=0x{d['usage']:04X}")
             dump(d["path"].decode())
 

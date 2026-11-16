@@ -172,6 +172,11 @@ static void test_enable_reports(void)
     CHECK(MtpGetEnableReport(MTP_TRANSPORT_BT, NULL, &n) == MTP_ERR_ARG);
     CHECK(MtpInputReportId(MTP_TRANSPORT_BT) == 0x31);
     CHECK(MtpInputReportId(MTP_TRANSPORT_USB) == 0x02);
+
+    CHECK(MtpIsSupportedProduct(0x0265));  /* Lightning（第 2・第 3 世代） */
+    CHECK(MtpIsSupportedProduct(0x0324));  /* USB-C（第 4 世代、実機未確認） */
+    CHECK(!MtpIsSupportedProduct(0x030E)); /* 初代 Magic Trackpad は対象外 */
+    CHECK(!MtpIsSupportedProduct(0x0000));
 }
 
 /* 2026-11-16 の実機試験で送り、体感を確認したバイト列（probe/FINDINGS.md） */

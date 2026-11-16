@@ -1,6 +1,6 @@
 # MtpBth スパイクドライバーの導入手順
 
-MtpBth は Magic Trackpad 2（Bluetooth）の生フレームを取り出して、レポート形式を実機で確認するための検証用ドライバー。
+MtpBth は Magic Trackpad（Bluetooth）の生フレームを取り出して、レポート形式を実機で確認するための検証用ドライバー。
 **入れている間、トラックパッドは Windows のマウスとして動かない。**入力を Windows へ渡す処理（PTP）はまだない。
 
 ## 始める前に
@@ -8,7 +8,7 @@ MtpBth は Magic Trackpad 2（Bluetooth）の生フレームを取り出して�
 - このドライバーはテスト署名で、カーネルで動く。不具合があるとブルースクリーンになりうる。作業前に復元ポイントを作っておく
 - テスト署名モードは Secure Boot がオフでないと有効にできないことが多い。**会社の PC では、情シスの規定で許されるか先に確認する**
 - BitLocker が有効な場合は、ブート設定を変えると回復キーを求められることがある。回復キーを手元に用意しておく
-- 影響するのは Magic Trackpad 2（`BTHENUM\{00001124-...}_VID&0001004c_PID&0265`）だけ。他の Bluetooth 機器のドライバーは変えない
+- 影響するのは Magic Trackpad（`BTHENUM\{00001124-...}_VID&0001004c_PID&0265`）だけ。他の Bluetooth 機器のドライバーは変えない
 
 以下、2〜6 は**管理者権限の PowerShell** で、リポジトリのルート（`C:\work\MTP`）から実行する。
 
@@ -63,10 +63,10 @@ bcdedit /set testsigning on
 pnputil /add-driver build\drivers\Debug\MtpBth\MtpBth.inf /install
 ```
 
-デバイスマネージャーの「システム デバイス」に **Magic Trackpad 2 (MTP Bluetooth spike)** が出れば成功。
+デバイスマネージャーの「システム デバイス」に **Magic Trackpad (MTP Bluetooth spike)** が出れば成功。
 
 Windows 標準の hidbth が選ばれたままの場合は、手動で切り替える。
-デバイスマネージャー →「ヒューマン インターフェイス デバイス」→「Bluetooth HID デバイス」（Magic Trackpad のもの）→ ドライバーの更新 →「コンピューターを参照」→「一覧から選択」→ **Magic Trackpad 2 (MTP Bluetooth spike)**。
+デバイスマネージャー →「ヒューマン インターフェイス デバイス」→「Bluetooth HID デバイス」（Magic Trackpad のもの）→ ドライバーの更新 →「コンピューターを参照」→「一覧から選択」→ **Magic Trackpad (MTP Bluetooth spike)**。
 
 ## 7. 動作を確認する（管理者権限は不要）
 

@@ -7,8 +7,16 @@
 #include <hidsdi.h>
 #include <wchar.h>
 
-/* MI_02 のデバイスパスに含まれる文字列（小文字で比較する） */
-static const wchar_t kActuatorPathPart[] = L"vid_05ac&pid_0265&mi_02";
+/*
+ * Actuator（MI_02）のデバイスパスに含まれる文字列（小文字で比較する）
+ * - PID 0x0265（Lightning）: 実機で確認済み
+ * - PID 0x0324（USB-C、第 4 世代）: 公開情報で MI_02・Usage 0xFF00/0x0D と報告されている。
+ *   振動レポートの中身が同じかを含め、実機では未確認
+ */
+static const wchar_t *kActuatorPathParts[] = {
+    L"vid_05ac&pid_0265&mi_02",
+    L"vid_05ac&pid_0324&mi_02",
+};
 
 static HANDLE OpenActuator(void)
 {
@@ -37,11 +45,13 @@ static HANDLE OpenActuator(void)
             for (i = 0; i <= len; i++) {
                 lower[i] = (WCHAR)towlower(p[i]);
             }
-            if (wcsstr(lower, kActuatorPathPart) != NULL) {
-                h = CreateFileW(p, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
-                if (h != INVALID_HANDLE_VALUE) {
-                    break;
+            for (i = 0; i < ARRAYSIZE(kActuatorPathParts) && h == INVALID_HANDLE_VALUE; i++) {
+                if (wcsstr(lower, kActuatorPathParts[i]) != NULL) {
+                    h = CreateFileW(p, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
                 }
+            }
+            if (h != INVALID_HANDLE_VALUE) {
+                break;
             }
         }
     }

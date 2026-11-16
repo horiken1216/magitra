@@ -8,11 +8,13 @@ import time
 
 import hid
 
+from mtp_ids import PIDS, VID_USB, is_trackpad
+
 
 def main() -> None:
     seconds = float(sys.argv[1]) if len(sys.argv) > 1 else 12
     path = None
-    for d in hid.enumerate(0x05AC, 0x0265):
+    for d in [x for pid in PIDS for x in hid.enumerate(VID_USB, pid)]:
         if d["interface_number"] == 2:
             path = d["path"]
     if path is None:

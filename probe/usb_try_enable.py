@@ -6,6 +6,8 @@ import ctypes
 
 import hid
 
+from mtp_ids import PIDS, VID_USB, is_trackpad
+
 k32 = ctypes.WinDLL("kernel32.dll", use_last_error=True)
 hid_dll = ctypes.WinDLL("hid.dll", use_last_error=True)
 k32.CreateFileW.restype = ctypes.c_void_p
@@ -20,7 +22,7 @@ INVALID = ctypes.c_void_p(-1).value
 
 
 def main() -> None:
-    for d in hid.enumerate(0x05AC, 0x0265):
+    for d in [x for pid in PIDS for x in hid.enumerate(VID_USB, pid)]:
         tag = f"MI_{d['interface_number']:02d} 0x{d['usage_page']:04X}/0x{d['usage']:04X}"
         h = k32.CreateFileW(d["path"].decode(), GENERIC_RW, SHARE_RW, None, OPEN_EXISTING, 0, None)
         if h in (None, INVALID):

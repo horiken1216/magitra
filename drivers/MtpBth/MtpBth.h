@@ -1,5 +1,5 @@
 /*
- * MtpBth.h - Magic Trackpad 2 (Bluetooth) スパイクドライバーの内部定義
+ * MtpBth.h - Magic Trackpad (Bluetooth) スパイクドライバーの内部定義
  *
  * BTHENUM の HID サービス PDO に機能ドライバーとして入り（hidbth の代わり）、
  * HID の L2CAP チャネル（制御 PSM 0x11、割り込み PSM 0x13）を自分で開く。

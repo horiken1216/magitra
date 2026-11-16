@@ -8,6 +8,8 @@ import time
 
 import hid
 
+from mtp_ids import PIDS, VID_USB, is_trackpad
+
 k32 = ctypes.WinDLL("kernel32.dll", use_last_error=True)
 hid_dll = ctypes.WinDLL("hid.dll", use_last_error=True)
 k32.CreateFileW.restype = ctypes.c_void_p
@@ -28,7 +30,7 @@ def open_raw(path: str):
 
 def main() -> None:
     seconds = float(sys.argv[1]) if len(sys.argv) > 1 else 8
-    devs = [d for d in hid.enumerate() if d["vendor_id"] in (0x004C, 0x05AC) and d["product_id"] == 0x0265]
+    devs = [d for d in hid.enumerate() if is_trackpad(d)]
 
     for d in devs:
         path = d["path"].decode()

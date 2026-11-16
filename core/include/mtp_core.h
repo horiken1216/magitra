@@ -1,5 +1,5 @@
 /*
- * mtp_core.h - Magic Trackpad 2 の接続方式に依存しない処理（有効化レポート、入力レポート解析）
+ * mtp_core.h - Magic Trackpad の接続方式に依存しない処理（有効化レポート、入力レポート解析）
  *
  * カーネルモード（KMDF ドライバー）とユーザーモード（テスト・ツール）の両方から使う。
  * そのため動的メモリ確保と CRT 関数を使わない。
@@ -29,7 +29,20 @@ extern "C" {
 
 #define MTP_VID_APPLE_BT   0x004C
 #define MTP_VID_APPLE_USB  0x05AC
+
+/*
+ * 対応する製品 ID（BT・USB で同じ値）
+ * - 0x0265: Lightning の Magic Trackpad。2015 年の Magic Trackpad 2 と 2021 年の改良版（第 3 世代）が同じ値を使う。
+ *           第 3 世代（BT・HID の製品名は「Magic Trackpad」）で実機確認済み
+ * - 0x0324: USB-C の Magic Trackpad（第 4 世代）。**仮対応（実機未確認）**。公開情報で、Actuator が MI_02・出力 0x53 であることなど
+ *           第 3 世代と同じ作りと報告されているので受け付けるが、マルチタッチのレポート形式・切り替えレポート・
+ *           インターフェイス番号が同じかは確かめていない（docs/INSTALL-USB.md「対応機種」）
+ */
 #define MTP_PID_MT2        0x0265
+#define MTP_PID_MT_USBC    0x0324
+
+/* 対応する製品 ID なら 1 */
+int MtpIsSupportedProduct(uint16_t product_id);
 
 /* 入力レポート ID（マルチタッチモード時） */
 #define MTP_REPORT_ID_BT   0x31
@@ -39,7 +52,7 @@ extern "C" {
 #define MTP_MAX_CONTACTS   16
 
 /*
- * 座標の範囲（MT2）。X は右が正、Y は下（手前）が正で、画面座標と同じ向き。
+ * 座標の範囲（PID 0x0265 で確認した値。0x0324 も同じと仮定）。X は右が正、Y は下（手前）が正で、画面座標と同じ向き。
  * Y は指データの 13bit 値の符号を反転したもの。Linux hid-magicmouse と imbushuo のドライバーも同じ扱いで、
  * 実機でも「上（奥）へ動かすと Y が減る」ことを確認した（2026-11-16）。
  */

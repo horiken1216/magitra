@@ -1,5 +1,5 @@
 /*
- * mtp_report.c - Magic Trackpad 2 の有効化レポートと入力レポート解析
+ * mtp_report.c - Magic Trackpad の有効化レポートと入力レポート解析
  *
  * 入力レポートの構造:
  *   [0]          Report ID（BT: 0x31, USB: 0x02）
@@ -51,6 +51,11 @@ MTP_STATUS MtpGetEnableReport(MTP_TRANSPORT transport, const uint8_t **report, s
     default:
         return MTP_ERR_ARG;
     }
+}
+
+int MtpIsSupportedProduct(uint16_t product_id)
+{
+    return product_id == MTP_PID_MT2 || product_id == MTP_PID_MT_USBC;
 }
 
 uint8_t MtpInputReportId(MTP_TRANSPORT transport)

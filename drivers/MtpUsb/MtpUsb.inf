@@ -1,5 +1,5 @@
 ;
-; MtpUsb.inf - Bind the Microsoft-signed WinUSB driver to Magic Trackpad 2 USB interface 1 (MI_01)
+; MtpUsb.inf - Bind the Microsoft-signed WinUSB driver to Magic Trackpad USB interface 1 (MI_01)
 ;
 ; No custom kernel code: the function driver is the inbox winusb.sys (signed by Microsoft).
 ; Only this INF's catalog is signed, with a locally trusted self-signed certificate.
@@ -21,7 +21,11 @@ PnpLockdown = 1
 %ProviderName% = Mtp,NTamd64.10.0...16299
 
 [Mtp.NTamd64.10.0...16299]
+; PID 0265: Lightning Magic Trackpad (2015 "Magic Trackpad 2" and the 2021 3rd generation). Verified on the 3rd generation.
 %MtpUsb.DeviceDesc% = MtpUsb_Install, USB\VID_05AC&PID_0265&MI_01
+; PID 0324: USB-C Magic Trackpad (4th generation). NOT verified on hardware: assumes the multitouch
+; interface is also MI_01 with the same reports as PID 0265 (see docs/INSTALL-USB.md "Supported models").
+%MtpUsb.DeviceDesc% = MtpUsb_Install, USB\VID_05AC&PID_0324&MI_01
 
 [MtpUsb_Install]
 Include = winusb.inf
@@ -40,4 +44,4 @@ HKR,,DeviceInterfaceGUIDs,0x10000,"{A3F9C2E4-6B1D-4F58-8E27-5C0D9B41E7A6}"
 
 [Strings]
 ProviderName      = "MTP Project"
-MtpUsb.DeviceDesc = "Magic Trackpad 2 (MTP WinUSB)"
+MtpUsb.DeviceDesc = "Magic Trackpad (MTP WinUSB)"

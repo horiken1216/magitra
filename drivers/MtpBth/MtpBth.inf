@@ -1,5 +1,5 @@
 ;
-; MtpBth.inf - Magic Trackpad 2 (Bluetooth) spike driver
+; MtpBth.inf - Magic Trackpad (Bluetooth) spike driver
 ;
 ; Installs as the function driver on the BTHENUM HID service PDO, replacing hidbth.
 ; While installed, the trackpad no longer works as a standard HID mouse
@@ -29,7 +29,9 @@ MtpBth.sys = 1,,
 %ProviderName% = Mtp,NT$ARCH$.10.0...16299
 
 [Mtp.NT$ARCH$.10.0...16299]
+; PID 0265: Lightning Magic Trackpad. PID 0324: USB-C Magic Trackpad (4th generation, NOT verified on hardware).
 %MtpBth.DeviceDesc% = MtpBth_Device, BTHENUM\{00001124-0000-1000-8000-00805f9b34fb}_VID&0001004c_PID&0265
+%MtpBth.DeviceDesc% = MtpBth_Device, BTHENUM\{00001124-0000-1000-8000-00805f9b34fb}_VID&0001004c_PID&0324
 
 [MtpBth_Device.NT]
 CopyFiles = MtpBth_CopyFiles
@@ -56,5 +58,5 @@ KmdfLibraryVersion = $KMDFVERSION$
 [Strings]
 ProviderName        = "MTP Project"
 DiskName            = "MTP Installation Disk"
-MtpBth.DeviceDesc   = "Magic Trackpad 2 (MTP Bluetooth spike)"
-MtpBth.ServiceDesc  = "MTP Magic Trackpad 2 Bluetooth Driver"
+MtpBth.DeviceDesc   = "Magic Trackpad (MTP Bluetooth spike)"
+MtpBth.ServiceDesc  = "MTP Magic Trackpad Bluetooth Driver"

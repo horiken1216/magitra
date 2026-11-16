@@ -1,4 +1,4 @@
-"""USB 接続の Magic Trackpad 2 で、アプリから開ける全コレクションの入力レポートを記録する。
+"""USB 接続の Magic Trackpad で、アプリから開ける全コレクションの入力レポートを記録する。
 
 ドライバーは使わない。OS が専有しているコレクション（マウスなど）は開けないので飛ばす。
 使い方: python usb_listen.py [秒数] [--dump-dir DIR]
@@ -10,8 +10,9 @@ import time
 
 import hid
 
+from mtp_ids import PIDS, VID_USB, is_trackpad
+
 USB_VID = 0x05AC
-MT2_PID = 0x0265
 SAMPLES_PER_ID = 5
 
 
@@ -22,7 +23,7 @@ def main() -> None:
     args = ap.parse_args()
 
     handles = []
-    for d in hid.enumerate(USB_VID, MT2_PID):
+    for d in [x for pid in PIDS for x in hid.enumerate(USB_VID, pid)]:
         tag = f"MI_{d['interface_number']:02d} 0x{d['usage_page']:04X}/0x{d['usage']:04X}"
         dev = hid.device()
         try:

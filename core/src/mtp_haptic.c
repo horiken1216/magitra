@@ -1,5 +1,5 @@
 /*
- * mtp_haptic.c - Magic Trackpad 2 (USB) の Actuator 出力レポートの組み立て
+ * mtp_haptic.c - Magic Trackpad (USB) の Actuator 出力レポートの組み立て
  *
  * 14 バイトのテンプレート（imbushuo の gist、USB PID 0x0265 で動作報告あり）:
  *   idx:  0  1  2  3  4  5  6  7  8  9 10 11 12 13
