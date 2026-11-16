@@ -1,0 +1,60 @@
+;
+; MtpBth.inf - Magic Trackpad 2 (Bluetooth) spike driver
+;
+; Installs as the function driver on the BTHENUM HID service PDO, replacing hidbth.
+; While installed, the trackpad no longer works as a standard HID mouse
+; (this spike does not forward input to Windows).
+; To revert: pnputil /delete-driver <oemNN.inf> /uninstall
+;
+
+[Version]
+Signature   = "$WINDOWS NT$"
+Class       = System
+ClassGuid   = {4d36e97d-e325-11ce-bfc1-08002be10318}
+Provider    = %ProviderName%
+CatalogFile = MtpBth.cat
+DriverVer   =
+PnpLockdown = 1
+
+[DestinationDirs]
+DefaultDestDir = 13
+
+[SourceDisksNames]
+1 = %DiskName%,,,""
+
+[SourceDisksFiles]
+MtpBth.sys = 1,,
+
+[Manufacturer]
+%ProviderName% = Mtp,NT$ARCH$.10.0...16299
+
+[Mtp.NT$ARCH$.10.0...16299]
+%MtpBth.DeviceDesc% = MtpBth_Device, BTHENUM\{00001124-0000-1000-8000-00805f9b34fb}_VID&0001004c_PID&0265
+
+[MtpBth_Device.NT]
+CopyFiles = MtpBth_CopyFiles
+
+[MtpBth_CopyFiles]
+MtpBth.sys
+
+[MtpBth_Device.NT.Services]
+AddService = MtpBth, 0x00000002, MtpBth_Service
+
+[MtpBth_Service]
+DisplayName   = %MtpBth.ServiceDesc%
+ServiceType   = 1   ; SERVICE_KERNEL_DRIVER
+StartType     = 3   ; SERVICE_DEMAND_START
+ErrorControl  = 1   ; SERVICE_ERROR_NORMAL
+ServiceBinary = %13%\MtpBth.sys
+
+[MtpBth_Device.NT.Wdf]
+KmdfService = MtpBth, MtpBth_wdfsect
+
+[MtpBth_wdfsect]
+KmdfLibraryVersion = $KMDFVERSION$
+
+[Strings]
+ProviderName        = "MTP Project"
+DiskName            = "MTP Installation Disk"
+MtpBth.DeviceDesc   = "Magic Trackpad 2 (MTP Bluetooth spike)"
+MtpBth.ServiceDesc  = "MTP Magic Trackpad 2 Bluetooth Driver"

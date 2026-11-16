@@ -1,0 +1,17 @@
+# 参照用 OSS（独自の git 管理。コードは流用しない）
+third_party/
+
+# ビルド成果物
+build/
+out/
+x64/
+*.obj
+*.exe
+*.pdb
+*.ilk
+*.sys
+*.cat
+.vs/
+packages/
+
+__pycache__/
