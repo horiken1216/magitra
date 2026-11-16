@@ -13,6 +13,7 @@
  *     --scroll-gain F  スクロールの倍率（既定 0.6）
  *     --log FILE       フレームごとの時刻・指の状態と座標・作ったイベントを FILE に書く
  *     --no-force       Force Touch を使わない（押した瞬間に左ボタンを送る）
+ *     --no-gestures    3・4 本指のスワイプを使わない
  *
  * Force Touch が成立すると、Actuator で振動させてから中クリックを送る。
  * --dry-run でも振動は鳴らす（Windows への入力ではないので、手応えだけ確かめられる）。中クリックは送らない。
@@ -22,6 +23,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "mtp_actions.h"
 #include "mtp_core.h"
 #include "mtp_device.h"
 #include "mtp_gesture.h"
@@ -72,6 +74,7 @@ static void ParseOptions(int argc, char **argv, OPTIONS *opt)
         else if (strcmp(argv[i], "--scroll-gain") == 0 && i + 1 < argc) opt->gesture.scroll_gain = (float)atof(argv[++i]);
         else if (strcmp(argv[i], "--log") == 0 && i + 1 < argc) opt->log_path = argv[++i];
         else if (strcmp(argv[i], "--no-force") == 0) opt->gesture.force_enabled = 0;
+        else if (strcmp(argv[i], "--no-gestures") == 0) opt->gesture.swipe_enabled = 0;
     }
 }
 
@@ -90,6 +93,12 @@ static void PrintEvent(FILE *out, const char *prefix, const MTP_EVENT *ev)
     case MTP_EVENT_FORCE:
         fprintf(out, "%s force\n", prefix);
         break;
+    case MTP_EVENT_SWIPE: {
+        static const char *dirs[] = { "左", "右", "上", "下" };
+        fprintf(out, "%s swipe %d本指 %s → %s\n", prefix, ev->fingers, dirs[ev->direction & 3],
+            MtpActionName(MtpActionForSwipe(ev->fingers, ev->direction)));
+        break;
+    }
     default:
         break;
     }
@@ -123,7 +132,12 @@ static void Emit(const OPTIONS *opt, const MTP_EVENT *events, size_t count)
             continue;
         }
         if (events[i].type == MTP_EVENT_FORCE) {
-            if (!MtpInputForceAction()) {
+            if (!MtpActionRun(MTP_ACTION_MIDDLE_CLICK)) {
+                printf("SendInput failed: %lu\n", GetLastError());
+            }
+        } else if (events[i].type == MTP_EVENT_SWIPE) {
+            PrintEvent(stdout, "[gesture]", &events[i]);
+            if (!MtpActionRun(MtpActionForSwipe(events[i].fingers, events[i].direction))) {
                 printf("SendInput failed: %lu\n", GetLastError());
             }
         } else if (!MtpInputSend(&events[i])) {
@@ -174,11 +188,12 @@ int main(int argc, char **argv)
     }
 
     MtpGestureInit(&gesture, &opt.gesture);
-    printf("mtpagent-cli 開始（%s%s、ナチュラルスクロール=%s、Force Touch=%s、Ctrl+C で終了）\n",
+    printf("mtpagent-cli 開始（%s%s、ナチュラルスクロール=%s、Force Touch=%s、3・4本指ジェスチャー=%s、Ctrl+C で終了）\n",
         opt.dry_run ? "dry-run" : "入力を送る",
         opt.seconds >= 0 ? "、時間制限あり" : "",
         opt.gesture.natural_scroll ? "オン" : "オフ",
-        opt.gesture.force_enabled ? "オン" : "オフ");
+        opt.gesture.force_enabled ? "オン" : "オフ",
+        opt.gesture.swipe_enabled ? "オン" : "オフ");
 
     start = GetTickCount64();
     QueryPerformanceCounter(&qpc0);

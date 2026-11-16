@@ -315,6 +315,172 @@ static void test_force_disabled(void)
     }
 }
 
+/* n 本の指を (dx, dy) ずつ動かすフレームを steps 回送り、出たスワイプを返す（なければ NULL 扱いで fingers=0） */
+static MTP_EVENT SwipeSteps(MTP_GESTURE *g, int fingers, int dx, int dy, int steps, int *swipe_count, int *other_count)
+{
+    MTP_EVENT ev[MTP_GESTURE_MAX_EVENTS];
+    MTP_EVENT found;
+    F f[4];
+    int i, s;
+
+    memset(&found, 0, sizeof(found));
+    for (s = 0; s <= steps; s++) {
+        size_t n, k;
+        for (i = 0; i < fingers; i++) {
+            f[i].id = (uint8_t)(i + 1);
+            f[i].x = (int16_t)(i * 800 + s * dx);
+            f[i].y = (int16_t)(s * dy);
+            f[i].state = 2;
+            f[i].major = 50;
+            f[i].p = 10;
+        }
+        n = Step(g, 0, f, fingers, ev);
+        for (k = 0; k < n; k++) {
+            if (ev[k].type == MTP_EVENT_SWIPE) {
+                (*swipe_count)++;
+                found = ev[k];
+            } else {
+                (*other_count)++;
+            }
+        }
+    }
+    return found;
+}
+
+static void test_three_finger_swipes(void)
+{
+    MTP_GESTURE g;
+    MTP_EVENT ev[MTP_GESTURE_MAX_EVENTS];
+    MTP_EVENT s;
+    int swipes, others;
+
+    /* 左へ（x が減る） */
+    MtpGestureInit(&g, NULL);
+    swipes = others = 0;
+    s = SwipeSteps(&g, 3, -60, 0, 20, &swipes, &others);
+    CHECK(swipes == 1 && others == 0); /* 1 回だけ。ポインターもスクロールも出さない */
+    CHECK(s.fingers == 3 && s.direction == MTP_DIR_LEFT);
+
+    /* 右へ */
+    MtpGestureInit(&g, NULL);
+    swipes = others = 0;
+    s = SwipeSteps(&g, 3, 60, 0, 20, &swipes, &others);
+    CHECK(swipes == 1 && s.direction == MTP_DIR_RIGHT);
+
+    /* 上（奥）へ: y が減る */
+    MtpGestureInit(&g, NULL);
+    swipes = others = 0;
+    s = SwipeSteps(&g, 3, 0, -60, 20, &swipes, &others);
+    CHECK(swipes == 1 && s.direction == MTP_DIR_UP);
+
+    /* 下（手前）へ */
+    MtpGestureInit(&g, NULL);
+    swipes = others = 0;
+    s = SwipeSteps(&g, 3, 0, 60, 20, &swipes, &others);
+    CHECK(swipes == 1 && s.direction == MTP_DIR_DOWN);
+
+    /* 指を離して置き直せば、もう一度出せる */
+    CHECK(Step(&g, 0, NULL, 0, ev) == 0);
+    swipes = others = 0;
+    s = SwipeSteps(&g, 3, 0, 60, 20, &swipes, &others);
+    CHECK(swipes == 1);
+}
+
+static void test_four_finger_swipe(void)
+{
+    MTP_GESTURE g;
+    MTP_EVENT s;
+    int swipes = 0, others = 0;
+
+    MtpGestureInit(&g, NULL);
+    s = SwipeSteps(&g, 4, -60, 0, 20, &swipes, &others);
+    CHECK(swipes == 1 && s.fingers == 4 && s.direction == MTP_DIR_LEFT);
+}
+
+static void test_swipe_needs_distance_and_clear_direction(void)
+{
+    MTP_GESTURE g;
+    int swipes, others;
+
+    /* 合計 300 単位（約 6mm）では足りない */
+    MtpGestureInit(&g, NULL);
+    swipes = others = 0;
+    SwipeSteps(&g, 3, -30, 0, 10, &swipes, &others);
+    CHECK(swipes == 0);
+
+    /* 斜め 45 度は向きを決められない */
+    MtpGestureInit(&g, NULL);
+    swipes = others = 0;
+    SwipeSteps(&g, 3, 50, 50, 20, &swipes, &others);
+    CHECK(swipes == 0);
+
+    /* 無効にすれば出ない */
+    {
+        MTP_GESTURE_CONFIG cfg;
+        MtpGestureDefaultConfig(&cfg);
+        cfg.swipe_enabled = 0;
+        MtpGestureInit(&g, &cfg);
+        swipes = others = 0;
+        SwipeSteps(&g, 3, -60, 0, 20, &swipes, &others);
+        CHECK(swipes == 0 && others == 0);
+    }
+}
+
+/* スワイプの後、指を 1 本ずつ離す途中で残った指が動いても、ポインターやスクロールを出さない */
+static void test_no_motion_while_lifting_after_swipe(void)
+{
+    MTP_GESTURE g;
+    MTP_EVENT ev[MTP_GESTURE_MAX_EVENTS];
+    F two0[2] = { { 1, 0, 0, 2, 50, 10 }, { 2, 800, 0, 2, 50, 10 } };
+    F two1[2] = { { 1, -200, 0, 2, 50, 10 }, { 2, 600, 0, 2, 50, 10 } };
+    F one0 = { 1, -200, 0, 2, 50, 10 }, one1 = { 1, -400, 0, 2, 50, 10 };
+    F fresh0 = { 5, 0, 0, 2, 50, 10 }, fresh1 = { 5, 100, 0, 2, 50, 10 };
+    int swipes = 0, others = 0;
+
+    MtpGestureInit(&g, NULL);
+    SwipeSteps(&g, 3, -60, 0, 20, &swipes, &others);
+    CHECK(swipes == 1);
+    CHECK(Step(&g, 0, two0, 2, ev) == 0);
+    CHECK(Step(&g, 0, two1, 2, ev) == 0);
+    CHECK(Step(&g, 0, &one0, 1, ev) == 0);
+    CHECK(Step(&g, 0, &one1, 1, ev) == 0);
+    /* すべて離した後は、また普通に動く */
+    CHECK(Step(&g, 0, NULL, 0, ev) == 0);
+    Step(&g, 0, &fresh0, 1, ev);
+    CHECK(Find(ev, Step(&g, 0, &fresh1, 1, ev), MTP_EVENT_MOVE) != NULL);
+}
+
+/* 3 本以上で押し込んでもクリックにしない。払う途中の押し込みでもスワイプは出る（実機で起きた） */
+static void test_press_during_swipe_is_ignored(void)
+{
+    MTP_GESTURE g;
+    MTP_EVENT ev[MTP_GESTURE_MAX_EVENTS];
+    F f[3];
+    int s, i, swipes = 0, buttons = 0;
+
+    MtpGestureInit(&g, NULL);
+    for (s = 0; s <= 20; s++) {
+        size_t n, k;
+        for (i = 0; i < 3; i++) {
+            f[i].id = (uint8_t)(i + 1);
+            f[i].x = (int16_t)(i * 800 - s * 60);
+            f[i].y = 0;
+            f[i].state = 2;
+            f[i].major = 50;
+            f[i].p = 200;
+        }
+        /* 2〜15 フレーム目は押し込んでいる */
+        n = Step(&g, (s >= 2 && s <= 15) ? 1 : 0, f, 3, ev);
+        for (k = 0; k < n; k++) {
+            if (ev[k].type == MTP_EVENT_SWIPE) swipes++;
+            if (ev[k].type == MTP_EVENT_BUTTON || ev[k].type == MTP_EVENT_FORCE) buttons++;
+        }
+    }
+    CHECK(swipes == 1);
+    CHECK(buttons == 0);
+    CHECK(MtpGestureRelease(&g, ev, 1) == 0);
+}
+
 static void test_right_click_with_two_fingers(void)
 {
     MTP_GESTURE g;
@@ -450,6 +616,11 @@ int main(void)
     test_force_not_after_window();
     test_drag_starts_before_window();
     test_force_disabled();
+    test_three_finger_swipes();
+    test_four_finger_swipe();
+    test_swipe_needs_distance_and_clear_direction();
+    test_no_motion_while_lifting_after_swipe();
+    test_press_during_swipe_is_ignored();
     test_right_click_with_two_fingers();
     test_click_drag_follows_moving_finger();
     test_finger_set_change_does_not_jump();

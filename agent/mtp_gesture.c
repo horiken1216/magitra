@@ -4,13 +4,15 @@
  * 判定の規則:
  * - 指として数えるのは、状態ビットが 1（触れ始め）か 2（接触中）で、touch_major >= min_touch_major の接触
  *   （実機で 0/3 は離れる途中、接触サイズ 0 と確認済み。probe/FINDINGS.md）
- * - 物理クリックの押下時に指が 2 本以上なら右ボタン。離すまで右ボタンを保つ
+ * - 物理クリックの押下時に指がちょうど 2 本なら右ボタン。離すまで右ボタンを保つ
+ * - 3 本以上で押し込んだときはクリックを送らない（払う途中の押し込み。実機で確認、2026-11-16）
  * - 1 本指の押下は、Force Touch が有効なら見極め（MTP_PRESS_PENDING）に入る（mtp_gesture.h の説明を参照）。
  *   実機では、強く押すと押し始めから 2〜34ms で圧力が 200 を超え、普通のクリックは最大 156 だった（2026-11-16）
  * - 指の組み合わせ（id の集合）が前フレームと変わったフレームでは動きを出さない（置いた・離した瞬間の飛びを防ぐ）
  * - 見極め中と Force Touch 中は、ポインターもスクロールも出さない
  * - ボタンを押している間: 一番大きく動いた指でポインターを動かす（クリックしている指は止まっているため）
- * - ボタンを押していない間: 1 本ならポインター移動、2 本ならスクロール、3 本以上は何もしない（今後のジェスチャー用）
+ * - ボタンを押していない間: 1 本ならポインター移動、2 本ならスクロール、3 本以上はスワイプの判定だけ
+ * - 3 本以上で触れた後は、指がすべて離れるまでポインターもスクロールも出さない（離す途中で残った指の動きを拾わない）
  * - 1 フレームで MTP_GLITCH_UNITS を超える移動は読み取りの乱れとして捨てる
  */
 #include "mtp_gesture.h"
@@ -34,6 +36,9 @@ void MtpGestureDefaultConfig(MTP_GESTURE_CONFIG *config)
     config->force_dwell_frames = 3;   /* 約 33ms */
     config->force_window_frames = 14; /* 約 155ms */
     config->drag_start_units = 100.0f; /* 約 2mm */
+    config->swipe_enabled = 1;
+    config->swipe_units = 500.0f;     /* 約 10mm */
+    config->swipe_axis_ratio = 1.5f;
 }
 
 void MtpGestureInit(MTP_GESTURE *g, const MTP_GESTURE_CONFIG *config)
@@ -147,7 +152,10 @@ size_t MtpGestureProcess(MTP_GESTURE *g, const MTP_FRAME *frame, MTP_EVENT *out,
     /* ボタン */
     if (frame->button) {
         if (g->press == MTP_PRESS_NONE) {
-            if (count >= 2) {
+            if (count >= 3) {
+                /* 感圧式なので、払う途中で押し込んでしまうことがある。右クリックにはしない */
+                g->press = MTP_PRESS_IGNORED;
+            } else if (count == 2) {
                 g->press = MTP_PRESS_RIGHT;
                 n = PushEvent(out, n, capacity, MTP_EVENT_BUTTON, 0, 0, MTP_BUTTON_RIGHT, 1);
             } else if (g->config.force_enabled) {
@@ -193,8 +201,53 @@ size_t MtpGestureProcess(MTP_GESTURE *g, const MTP_FRAME *frame, MTP_EVENT *out,
         g->press = MTP_PRESS_NONE;
     }
 
+    /* 3・4 本指のスワイプ */
+    if (count >= 3 && (g->press == MTP_PRESS_NONE || g->press == MTP_PRESS_IGNORED)) {
+        if (!g->multi_active) {
+            g->multi_active = 1;
+            g->multi_fired = 0;
+            g->multi_max_fingers = count;
+            g->multi_dx = g->multi_dy = 0;
+        }
+        if (count > g->multi_max_fingers) {
+            g->multi_max_fingers = count;
+        }
+        if (motion_valid) {
+            g->multi_dx += sum_dx / (float)count;
+            g->multi_dy += sum_dy / (float)count;
+        }
+        if (g->config.swipe_enabled && !g->multi_fired) {
+            float ax = fabsf(g->multi_dx);
+            float ay = fabsf(g->multi_dy);
+            int fire = 0;
+            MTP_DIRECTION dir = MTP_DIR_LEFT;
+            if (ax >= g->config.swipe_units && ax >= ay * g->config.swipe_axis_ratio) {
+                fire = 1;
+                dir = g->multi_dx < 0 ? MTP_DIR_LEFT : MTP_DIR_RIGHT;
+            } else if (ay >= g->config.swipe_units && ay >= ax * g->config.swipe_axis_ratio) {
+                fire = 1;
+                dir = g->multi_dy < 0 ? MTP_DIR_UP : MTP_DIR_DOWN; /* y は下（手前）が正 */
+            }
+            if (fire && n < capacity) {
+                memset(&out[n], 0, sizeof(out[n]));
+                out[n].type = MTP_EVENT_SWIPE;
+                out[n].fingers = g->multi_max_fingers >= 4 ? 4 : 3;
+                out[n].direction = dir;
+                n++;
+                g->multi_fired = 1;
+            }
+        }
+    } else if (count < 3 && g->multi_active) {
+        g->multi_active = 0;
+        g->multi_cooldown = 1;
+    }
+    if (count == 0) {
+        g->multi_cooldown = 0;
+    }
+
     /* 動き */
-    if (motion_valid && g->press != MTP_PRESS_PENDING && g->press != MTP_PRESS_FORCE) {
+    if (motion_valid && !g->multi_cooldown && !g->multi_active &&
+        g->press != MTP_PRESS_PENDING && g->press != MTP_PRESS_FORCE) {
         int pointer = 0;
         float pdx = 0, pdy = 0;
 

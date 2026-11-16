@@ -48,7 +48,7 @@ int main(int argc, char **argv)
     MTP_GESTURE g;
     MTP_GESTURE_CONFIG cfg;
     int verbose = 0;
-    unsigned long frames = 0, moves = 0, scrolls = 0, forces = 0;
+    unsigned long frames = 0, moves = 0, scrolls = 0, forces = 0, swipes = 0;
     unsigned long left_down = 0, left_up = 0, right_down = 0, right_up = 0;
     int i;
 
@@ -84,6 +84,12 @@ int main(int argc, char **argv)
                 forces++;
                 if (verbose) printf("%9.1f ms FORCE\n", t);
                 break;
+            case MTP_EVENT_SWIPE: {
+                static const char *names[] = { "left", "right", "up", "down" };
+                swipes++;
+                printf("%9.1f ms SWIPE %d fingers %s\n", t, ev[k].fingers, names[ev[k].direction & 3]);
+                break;
+            }
             case MTP_EVENT_BUTTON:
                 if (ev[k].button == MTP_BUTTON_RIGHT) { if (ev[k].down) right_down++; else right_up++; }
                 else { if (ev[k].down) left_down++; else left_up++; }
@@ -94,7 +100,7 @@ int main(int argc, char **argv)
         }
     }
     fclose(fp);
-    printf("frames=%lu left=%lu/%lu right=%lu/%lu force=%lu move=%lu scroll=%lu\n",
-        frames, left_down, left_up, right_down, right_up, forces, moves, scrolls);
+    printf("frames=%lu left=%lu/%lu right=%lu/%lu force=%lu swipe=%lu move=%lu scroll=%lu\n",
+        frames, left_down, left_up, right_down, right_up, forces, swipes, moves, scrolls);
     return 0;
 }

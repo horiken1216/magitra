@@ -35,6 +35,15 @@ typedef struct MTP_GESTURE_CONFIG {
     int     force_dwell_frames;
     int     force_window_frames;
     float   drag_start_units;
+
+    /*
+     * 3・4 本指のスワイプ（ボタンを押していないとき）
+     * 3 本以上が触れてからの平均移動量が swipe_units を超え、主な向きの移動量が
+     * もう一方の swipe_axis_ratio 倍以上なら、その向きのスワイプを 1 回出す。指が 3 本未満になるまで次は出さない。
+     */
+    int   swipe_enabled;
+    float swipe_units;
+    float swipe_axis_ratio;
 } MTP_GESTURE_CONFIG;
 
 void MtpGestureDefaultConfig(MTP_GESTURE_CONFIG *config);
@@ -43,8 +52,16 @@ typedef enum MTP_EVENT_TYPE {
     MTP_EVENT_MOVE = 1,    /* dx, dy（画素、画面座標） */
     MTP_EVENT_BUTTON = 2,  /* button, down */
     MTP_EVENT_SCROLL = 3,  /* dx = 横ホイール, dy = 縦ホイール（Windows の符号: 縦は正で上、横は正で右） */
-    MTP_EVENT_FORCE = 4    /* Force Touch が成立した（1 回の押し込みにつき 1 回） */
+    MTP_EVENT_FORCE = 4,   /* Force Touch が成立した（1 回の押し込みにつき 1 回） */
+    MTP_EVENT_SWIPE = 5    /* fingers 本でのスワイプ（direction は指が動いた向き） */
 } MTP_EVENT_TYPE;
+
+typedef enum MTP_DIRECTION {
+    MTP_DIR_LEFT = 0,
+    MTP_DIR_RIGHT = 1,
+    MTP_DIR_UP = 2,    /* 奥へ */
+    MTP_DIR_DOWN = 3   /* 手前へ */
+} MTP_DIRECTION;
 
 typedef enum MTP_BUTTON {
     MTP_BUTTON_LEFT = 0,
@@ -58,6 +75,8 @@ typedef struct MTP_EVENT {
     int dy;
     MTP_BUTTON button;
     int down;
+    int fingers;             /* MTP_EVENT_SWIPE: 3 か 4 */
+    MTP_DIRECTION direction; /* MTP_EVENT_SWIPE */
 } MTP_EVENT;
 
 #define MTP_GESTURE_MAX_EVENTS 4
@@ -67,7 +86,8 @@ typedef enum MTP_PRESS_STATE {
     MTP_PRESS_PENDING = 1, /* 1 本指で押し込んだ直後。Force Touch か通常クリックかを見極めている */
     MTP_PRESS_LEFT = 2,    /* 左ボタンの押下を送った */
     MTP_PRESS_RIGHT = 3,   /* 右ボタンの押下を送った */
-    MTP_PRESS_FORCE = 4    /* Force Touch が成立した。離すまで何も送らない */
+    MTP_PRESS_FORCE = 4,   /* Force Touch が成立した。離すまで何も送らない */
+    MTP_PRESS_IGNORED = 5  /* 3 本以上で押し込んだ（スワイプ中の押し込み）。クリックは送らず、スワイプの判定は続ける */
 } MTP_PRESS_STATE;
 
 typedef struct MTP_GESTURE {
@@ -84,6 +104,13 @@ typedef struct MTP_GESTURE {
     int   pending_frames;
     int   force_frames;
     float press_travel;
+
+    /* 3 本以上のスワイプ。指が 3 本以上になってから 3 本未満に戻るまでを 1 回の動作とみなす */
+    int   multi_active;
+    int   multi_max_fingers;
+    int   multi_fired;
+    float multi_dx, multi_dy;
+    int   multi_cooldown; /* 3 本以上の動作の後、指がすべて離れるまでポインターもスクロールも出さない */
 
     /* 1 未満の端数を次のフレームへ持ち越す */
     float move_rem_x, move_rem_y;

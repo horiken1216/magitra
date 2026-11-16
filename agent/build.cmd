@@ -22,7 +22,7 @@ rem Replays mtpagent-cli --log recordings through the gesture logic
 cl %CFLAGS% "%~dp0mtp_gesture.c" "%~dp0tests\replay_gesture.c" /Fo"%OUT%\\" /Fe"%OUT%\replay_gesture.exe" || exit /b 1
 if /i "%1"=="test" exit /b 0
 
-set COMMON="%~dp0mtp_gesture.c" "%~dp0mtp_device.c" "%~dp0mtp_input.c" "%~dp0mtp_haptic_out.c" "%ROOT%\core\src\mtp_report.c" "%ROOT%\core\src\mtp_haptic.c"
+set COMMON="%~dp0mtp_gesture.c" "%~dp0mtp_device.c" "%~dp0mtp_input.c" "%~dp0mtp_haptic_out.c" "%~dp0mtp_actions.c" "%ROOT%\core\src\mtp_report.c" "%ROOT%\core\src\mtp_haptic.c"
 
 if not exist "%OUT%\cli" mkdir "%OUT%\cli"
 if not exist "%OUT%\tray" mkdir "%OUT%\tray"

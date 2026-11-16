@@ -3,7 +3,8 @@
  *
  * - 読み取りスレッドが WinUSB からフレームを読み、mtp_gesture で入力に変換して SendInput で送る
  * - USB ケーブルを抜いても終了しない。2 秒ごとに再接続を試みる
- * - トレイのメニュー: 一時停止 / ナチュラルスクロール / Force Touch / ログオン時に起動 / 終了
+ * - トレイのメニュー: 一時停止 / ナチュラルスクロール / Force Touch / 3・4本指ジェスチャー / ログオン時に起動 / 終了
+ * - 3・4 本指のスワイプは mtp_actions の割り当て（仮想デスクトップ、タスクビューなど）を実行する
  * - Force Touch（1 本指で強く押し込む）が成立すると、Actuator で振動させてから中クリックを送る
  * - 設定は HKCU\Software\MTP\Agent に保存する。ログオン時の起動は
  *   HKCU\Software\Microsoft\Windows\CurrentVersion\Run（ユーザーごと、管理者権限不要）にメニューから登録・解除する
@@ -18,6 +19,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "mtp_actions.h"
 #include "mtp_core.h"
 #include "mtp_device.h"
 #include "mtp_gesture.h"
@@ -41,6 +43,7 @@
 #define IDM_AUTOSTART       103
 #define IDM_EXIT            104
 #define IDM_FORCE           105
+#define IDM_GESTURES        106
 
 typedef enum LINK_STATE {
     LINK_STARTING = 0,
@@ -57,6 +60,7 @@ static HANDLE g_worker;
 static volatile LONG g_paused = 0;
 static volatile LONG g_natural = 1;
 static volatile LONG g_force = 1;
+static volatile LONG g_gestures = 1;
 static MTP_HAPTIC_OUT g_haptic; /* 読み取りスレッドだけが使う */
 static volatile LONG g_state = LINK_STARTING;
 
@@ -175,7 +179,9 @@ static void SendEvents(const MTP_EVENT *ev, size_t n)
         if (ev[i].type == MTP_EVENT_FORCE) {
             MTP_HAPTIC feel = MTP_HAPTIC_FORCE;
             MtpHapticOutPlay(&g_haptic, &feel);
-            MtpInputForceAction();
+            MtpActionRun(MTP_ACTION_MIDDLE_CLICK);
+        } else if (ev[i].type == MTP_EVENT_SWIPE) {
+            MtpActionRun(MtpActionForSwipe(ev[i].fingers, ev[i].direction));
         } else {
             MtpInputSend(&ev[i]);
         }
@@ -216,6 +222,7 @@ static DWORD WINAPI WorkerMain(LPVOID param)
             PublishDevice(&dev);
             config.natural_scroll = (int)InterlockedCompareExchange(&g_natural, 0, 0);
             config.force_enabled = (int)InterlockedCompareExchange(&g_force, 0, 0);
+            config.swipe_enabled = (int)InterlockedCompareExchange(&g_gestures, 0, 0);
             MtpGestureInit(&gesture, &config);
             SetLinkState(LINK_CONNECTED);
         }
@@ -253,6 +260,8 @@ static DWORD WINAPI WorkerMain(LPVOID param)
         /* 押し込みの見極め中に切り替わっても、その押し込みは最後まで見極める（mtp_gesture の状態で続く） */
         gesture.config.force_enabled = (int)InterlockedCompareExchange(&g_force, 0, 0);
         config.force_enabled = gesture.config.force_enabled;
+        gesture.config.swipe_enabled = (int)InterlockedCompareExchange(&g_gestures, 0, 0);
+        config.swipe_enabled = gesture.config.swipe_enabled;
         n = MtpGestureProcess(&gesture, &frame, events, MTP_GESTURE_MAX_EVENTS);
         SendEvents(events, n);
     }
@@ -320,6 +329,8 @@ static void ShowMenu(HWND hwnd)
         L"ナチュラルスクロール");
     AppendMenuW(menu, MF_STRING | (InterlockedCompareExchange(&g_force, 0, 0) ? MF_CHECKED : 0), IDM_FORCE,
         L"Force Touch（強く押し込むと中クリック）");
+    AppendMenuW(menu, MF_STRING | (InterlockedCompareExchange(&g_gestures, 0, 0) ? MF_CHECKED : 0), IDM_GESTURES,
+        L"3・4本指ジェスチャー");
     AppendMenuW(menu, MF_STRING | (IsAutostartEnabled() ? MF_CHECKED : 0), IDM_AUTOSTART, L"ログオン時に起動");
     AppendMenuW(menu, MF_SEPARATOR, 0, NULL);
     AppendMenuW(menu, MF_STRING, IDM_EXIT, L"終了");
@@ -348,6 +359,12 @@ static void OnCommand(HWND hwnd, UINT id)
         LONG next = !InterlockedCompareExchange(&g_force, 0, 0);
         InterlockedExchange(&g_force, next);
         WriteSettingDword(L"ForceTouch", (DWORD)next);
+        break;
+    }
+    case IDM_GESTURES: {
+        LONG next = !InterlockedCompareExchange(&g_gestures, 0, 0);
+        InterlockedExchange(&g_gestures, next);
+        WriteSettingDword(L"Gestures", (DWORD)next);
         break;
     }
     case IDM_AUTOSTART:
@@ -416,6 +433,7 @@ int WINAPI wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev, _In_ PWSTR
     InitializeCriticalSection(&g_devLock);
     g_natural = (LONG)(ReadSettingDword(L"NaturalScroll", 1) != 0);
     g_force = (LONG)(ReadSettingDword(L"ForceTouch", 1) != 0);
+    g_gestures = (LONG)(ReadSettingDword(L"Gestures", 1) != 0);
     g_stopEvent = CreateEventW(NULL, TRUE, FALSE, NULL);
     g_taskbarCreated = RegisterWindowMessageW(L"TaskbarCreated");
 
