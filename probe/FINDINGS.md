@@ -134,6 +134,18 @@ USB Composite Device（`USB\VID_05AC&PID_0265`）の下に 4 インターフェ�
   - 16:47 に作った証明書が、秘密鍵ごとユーザーの証明書ストアから消えていた（理由は不明。会社の管理ツールの可能性）。
     作り直して署名・導入した。署名は実行ファイルに埋め込まれるので、導入後に秘密鍵が消えても、信頼の登録が残っていれば動く
 
+## インストーラー（mtpsetup.exe、2026-11-16）
+
+- 一般の PC には signtool がないため、Windows 標準の Set-AuthenticodeSignature で署名する。
+  一時証明書でカタログ（.cat）と実行ファイル（.exe）の両方に署名できることを確認した
+- ユーザーが UIAccess 版の導入 → 取り除く、を実行。取り除いた後は、MI_01 が標準の HidUsb（マウスは mouhid）に戻り、
+  C:\Program Files\MTP・導入の記録・MTP の証明書（手作業の MTP Test Signing を含む）・ドライバーパッケージが残っていないことを確認
+- 作り直したインストーラーで UIAccess 版を再導入: 常駐アプリは uiAccess = True・昇格なしで起動、信頼されたルートには
+  「MTP Local Signing」（秘密鍵なし）だけ、PC の証明書ストアに秘密鍵つきの証明書は残っていない、MI_01 は WINUSB、
+  「アプリ」の一覧に登録済み
+- 同意画面で「UIAccess 版を選んだのに標準版（WinUSB）の説明が出る」と受け取られた。WinUSB は両方の版に共通なので、
+  「選んだ版」と「どちらの版でも行うこと / UIAccess 版だけで行うこと」に分けて表示するよう直した
+
 ## スクリプト
 - `enum_devices.py` — コレクション列挙
 - `caps.py` — HidP_GetCaps でレポート ID と長さを取得
