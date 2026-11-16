@@ -10,7 +10,7 @@
  * 指データ 9 バイト:
  *   b0..b3  32bit LE ワード w
  *           X     = 符号付き 13bit (w bits 0..12)
- *           Y     = -符号付き 13bit (w bits 13..25)   ※デバイスは下が正なので反転
+ *           Y     = -符号付き 13bit (w bits 13..25)   ※反転後は下（手前）が正。画面座標と同じ向き
  *           state = b3 の上位 2bit
  *   b4      touch_major
  *   b5      touch_minor

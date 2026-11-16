@@ -38,7 +38,11 @@ extern "C" {
 /* 1 フレームに入る指の最大数。デバイスは最大 16 本まで報告しうる */
 #define MTP_MAX_CONTACTS   16
 
-/* 生座標の範囲（MT2）。X は右が正、Y は上が正に揃えた後の値 */
+/*
+ * 座標の範囲（MT2）。X は右が正、Y は下（手前）が正で、画面座標と同じ向き。
+ * Y は指データの 13bit 値の符号を反転したもの。Linux hid-magicmouse と imbushuo のドライバーも同じ扱いで、
+ * 実機でも「上（奥）へ動かすと Y が減る」ことを確認した（2026-11-16）。
+ */
 #define MTP_X_MIN  (-3678)
 #define MTP_X_MAX  3934
 #define MTP_Y_MIN  (-2479)
@@ -58,7 +62,7 @@ typedef enum MTP_STATUS {
 
 typedef struct MTP_CONTACT {
     int16_t x;            /* MTP_X_MIN..MTP_X_MAX */
-    int16_t y;            /* MTP_Y_MIN..MTP_Y_MAX（上が正） */
+    int16_t y;            /* MTP_Y_MIN..MTP_Y_MAX（下＝手前が正） */
     uint8_t touch_major;  /* 接触楕円の長軸 */
     uint8_t touch_minor;  /* 接触楕円の短軸 */
     uint8_t size;         /* 接触面積 */
