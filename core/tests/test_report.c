@@ -174,6 +174,43 @@ static void test_enable_reports(void)
     CHECK(MtpInputReportId(MTP_TRANSPORT_USB) == 0x02);
 }
 
+/* 2026-11-16 の実機試験で送り、体感を確認したバイト列（probe/FINDINGS.md） */
+static void test_actuator_reports(void)
+{
+    static const uint8_t baseline[14] = { 0x53, 0x01, 0x15, 0x6C, 0x02, 0x00, 0x21, 0x2B, 0x06, 0x01, 0x00, 0x16, 0x41, 0x13 };
+    static const uint8_t strong[14]   = { 0x53, 0x01, 0x30, 0x6C, 0x02, 0x00, 0x21, 0x2B, 0x06, 0x01, 0x00, 0x16, 0x41, 0x13 };
+    static const uint8_t sharp[14]    = { 0x53, 0x01, 0x15, 0x6C, 0x02, 0x20, 0x21, 0x2B, 0x06, 0x01, 0x00, 0x16, 0x41, 0x13 };
+    static const uint8_t deep[14]     = { 0x53, 0x01, 0x15, 0x6C, 0x02, 0x00, 0x21, 0x2B, 0x06, 0x01, 0x40, 0x16, 0x41, 0x13 };
+    uint8_t buf[MTP_ACTUATOR_REPORT_LENGTH];
+    uint8_t zeros[MTP_ACTUATOR_REPORT_LENGTH - 14] = { 0 };
+    MTP_HAPTIC h = MTP_HAPTIC_BASELINE;
+    int clamped = -1;
+
+    memset(buf, 0xAA, sizeof(buf));
+    CHECK(MtpBuildActuatorReport(&h, buf, sizeof(buf), &clamped) == MTP_OK);
+    CHECK(memcmp(buf, baseline, 14) == 0);
+    CHECK(memcmp(buf + 14, zeros, sizeof(zeros)) == 0);
+    CHECK(clamped == 0);
+    CHECK(buf[0] == MTP_ACTUATOR_REPORT_ID);
+
+    h.strength = 0x30; h.sharpness = 0x00; h.depth = 0x00;
+    CHECK(MtpBuildActuatorReport(&h, buf, sizeof(buf), NULL) == MTP_OK && memcmp(buf, strong, 14) == 0);
+    h.strength = 0x15; h.sharpness = 0x20; h.depth = 0x00;
+    CHECK(MtpBuildActuatorReport(&h, buf, sizeof(buf), NULL) == MTP_OK && memcmp(buf, sharp, 14) == 0);
+    h.strength = 0x15; h.sharpness = 0x00; h.depth = 0x40;
+    CHECK(MtpBuildActuatorReport(&h, buf, sizeof(buf), NULL) == MTP_OK && memcmp(buf, deep, 14) == 0);
+
+    /* 上限を超えた値は丸める */
+    h.strength = 0xFF; h.sharpness = 0x21; h.depth = 0x41;
+    CHECK(MtpBuildActuatorReport(&h, buf, sizeof(buf), &clamped) == MTP_OK);
+    CHECK(clamped == 1);
+    CHECK(buf[2] == MTP_ACTUATOR_STRENGTH_MAX && buf[5] == MTP_ACTUATOR_SHARPNESS_MAX && buf[10] == MTP_ACTUATOR_DEPTH_MAX);
+
+    CHECK(MtpBuildActuatorReport(NULL, buf, sizeof(buf), NULL) == MTP_ERR_ARG);
+    CHECK(MtpBuildActuatorReport(&h, NULL, sizeof(buf), NULL) == MTP_ERR_ARG);
+    CHECK(MtpBuildActuatorReport(&h, buf, sizeof(buf) - 1, NULL) == MTP_ERR_ARG);
+}
+
 int main(void)
 {
     test_bt_two_fingers();
@@ -183,6 +220,7 @@ int main(void)
     test_bad_input();
     test_truncation();
     test_enable_reports();
+    test_actuator_reports();
     printf("%d checks, %d failed\n", g_checks, g_failed);
     return g_failed == 0 ? 0 : 1;
 }
