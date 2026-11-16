@@ -24,6 +24,7 @@ tools\mtpdump\build.cmd
 ## 2. テスト署名用の証明書を作る（初回のみ）
 
 ```powershell
+cd C:\work\MTP   # 以降のパスはリポジトリのルートからの相対パス
 $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=MTP Test Signing" `
   -CertStoreLocation Cert:\CurrentUser\My -KeyUsage DigitalSignature -NotAfter (Get-Date).AddYears(2)
 Export-Certificate -Cert $cert -FilePath build\MtpTest.cer

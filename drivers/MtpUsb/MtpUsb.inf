@@ -1,0 +1,43 @@
+;
+; MtpUsb.inf - Bind the Microsoft-signed WinUSB driver to Magic Trackpad 2 USB interface 1 (MI_01)
+;
+; No custom kernel code: the function driver is the inbox winusb.sys (signed by Microsoft).
+; Only this INF's catalog is signed, with a locally trusted self-signed certificate.
+; While installed, Windows no longer sees MI_01 as a HID mouse/touchpad;
+; the MTP user-mode tools read the raw reports instead.
+; To revert: pnputil /delete-driver <oemNN.inf> /uninstall
+;
+
+[Version]
+Signature   = "$WINDOWS NT$"
+Class       = USBDevice
+ClassGuid   = {88BAE032-5A81-49f0-BC3D-A4FF138216D6}
+Provider    = %ProviderName%
+CatalogFile = MtpUsb.cat
+DriverVer   = 11/16/2026,0.1.0.0
+PnpLockdown = 1
+
+[Manufacturer]
+%ProviderName% = Mtp,NTamd64.10.0...16299
+
+[Mtp.NTamd64.10.0...16299]
+%MtpUsb.DeviceDesc% = MtpUsb_Install, USB\VID_05AC&PID_0265&MI_01
+
+[MtpUsb_Install]
+Include = winusb.inf
+Needs   = WINUSB.NT
+
+[MtpUsb_Install.Services]
+Include = winusb.inf
+Needs   = WINUSB.NT.Services
+
+[MtpUsb_Install.HW]
+AddReg = MtpUsb_AddReg
+
+[MtpUsb_AddReg]
+; Must match GUID_DEVINTERFACE_MTP_WINUSB in tools/mtpusbdump/mtpusbdump.c
+HKR,,DeviceInterfaceGUIDs,0x10000,"{A3F9C2E4-6B1D-4F58-8E27-5C0D9B41E7A6}"
+
+[Strings]
+ProviderName      = "MTP Project"
+MtpUsb.DeviceDesc = "Magic Trackpad 2 (MTP WinUSB)"

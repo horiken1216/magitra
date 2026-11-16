@@ -1,8 +1,8 @@
 /*
  * test_report.c - mtp_report.c の単体テスト
  *
- * バイト列は解析コードを使わず手計算で作った（計算過程はコメント参照）。
- * 実機の生データではない。実機での確認は、ドライバーで生フレームを取れるようになってから行う。
+ * 前半のバイト列は解析コードを使わず手計算で作った（計算過程はコメント参照）。
+ * test_usb_real_frames は USB 実機（WinUSB 経由）で記録したフレームの回帰テスト。
  */
 #include <stdio.h>
 #include <string.h>
@@ -80,6 +80,46 @@ static void test_usb_one_finger(void)
     CHECK(MtpParseReport(MTP_TRANSPORT_BT, r, sizeof(r), &f) == MTP_ERR_REPORT_ID);
 }
 
+/*
+ * 実機（USB、WinUSB 経由、マルチタッチモード）で記録したフレーム。2026-11-16 の build/usb_frames.txt より。
+ * 期待値は記録時の解析結果で、1 本目の X/Y は手計算でも確認した（w=0xB00B5BFC → x=-1028, y=-90）。
+ */
+static void test_usb_real_frames(void)
+{
+    static const uint8_t twoFingers[30] = {
+        0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x31, 0x40, 0x13, 0x05,
+        0xFC, 0x5B, 0x0B, 0xB0, 0x6F, 0x82, 0x07, 0x00, 0x86,
+        0x3B, 0xC0, 0xF3, 0xE3, 0x00, 0x00, 0x00, 0x00, 0x87
+    };
+    static const uint8_t clicked[21] = {
+        0x02, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x31, 0x01, 0xCF, 0x09,
+        0x89, 0x19, 0x3B, 0x90, 0x48, 0x5D, 0x16, 0x49, 0x89
+    };
+    MTP_FRAME f;
+
+    CHECK(MtpParseReport(MTP_TRANSPORT_USB, twoFingers, sizeof(twoFingers), &f) == MTP_OK);
+    CHECK(f.button == 0);
+    CHECK(f.contact_count == 2);
+    CHECK(f.contacts[0].id == 6 && f.contacts[0].x == -1028 && f.contacts[0].y == -90);
+    CHECK(f.contacts[0].touch_major == 111 && f.contacts[0].touch_minor == 130 && f.contacts[0].size == 7);
+    CHECK(f.contacts[0].pressure == 0 && f.contacts[0].state == 2 && f.contacts[0].orientation == 0);
+    /* 離れる直前の指: 接触サイズ・圧力が 0 で state=3 */
+    CHECK(f.contacts[1].id == 7 && f.contacts[1].x == 59 && f.contacts[1].y == 98);
+    CHECK(f.contacts[1].touch_major == 0 && f.contacts[1].pressure == 0 && f.contacts[1].state == 3);
+
+    CHECK(MtpParseReport(MTP_TRANSPORT_USB, clicked, sizeof(clicked), &f) == MTP_OK);
+    CHECK(f.button == 1);
+    CHECK(f.contact_count == 1);
+    CHECK(f.contacts[0].id == 9 && f.contacts[0].x == -1655 && f.contacts[0].y == -472);
+    CHECK(f.contacts[0].pressure == 73 && f.contacts[0].size == 22);
+
+    /* 既定モードのマウス用レポート（同じ ID 0x02 で 8 バイト）はフレームとして扱わない */
+    {
+        static const uint8_t mouse[8] = { 0x02, 0x00, 0xF6, 0xF6, 0x00, 0x00, 0x00, 0x01 };
+        CHECK(MtpParseReport(MTP_TRANSPORT_USB, mouse, sizeof(mouse), &f) == MTP_ERR_LENGTH);
+    }
+}
+
 static void test_no_fingers(void)
 {
     const uint8_t bt[4] = { 0x31, 0x00, 0x00, 0x00 };
@@ -138,6 +178,7 @@ int main(void)
 {
     test_bt_two_fingers();
     test_usb_one_finger();
+    test_usb_real_frames();
     test_no_fingers();
     test_bad_input();
     test_truncation();

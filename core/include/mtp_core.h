@@ -65,7 +65,7 @@ typedef struct MTP_CONTACT {
     uint8_t pressure;     /* 圧力（Force Touch の判定に使う） */
     uint8_t id;           /* 0..15。指が離れるまで同じ値 */
     int8_t  orientation;  /* -4..3 */
-    uint8_t state;        /* 生の状態ビット（byte3 の上位 2 ビット）。意味は実機で要確認 */
+    uint8_t state;        /* 生の状態ビット（byte3 の上位 2 ビット）。実機で 1 = 触れ始め、2 = 接触中、0/3 = 離れる途中を確認 */
 } MTP_CONTACT;
 
 typedef struct MTP_FRAME {
