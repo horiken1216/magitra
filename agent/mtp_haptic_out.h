@@ -20,8 +20,7 @@ typedef struct MTP_HAPTIC_OUT {
     ULONGLONG last_tick;   /* 最後に書いた時刻（GetTickCount64） */
 } MTP_HAPTIC_OUT;
 
-/* Force Touch の手応え（実機で「強くなった」strength と「重くなった」depth を組み合わせた） */
-#define MTP_HAPTIC_FORCE { 0x30, 0x00, 0x40 }
+/* Force Touch の手応えの既定値は mtp_settings.c（MtpSettingsDefaults）にある */
 
 void MtpHapticOutInit(MTP_HAPTIC_OUT *out);
 void MtpHapticOutClose(MTP_HAPTIC_OUT *out);

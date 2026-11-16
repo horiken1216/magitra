@@ -93,6 +93,8 @@ USB でも標準 HID スタックの上からは切り替えレポートを送�
     - タスクトレイ常駐版（mtpagent.exe）: 一時停止、ナチュラルスクロール、Force Touch、ログオン時に起動、USB 抜き差しの自動再接続
     - Force Touch: 押し始め約 0.15 秒の見極め、重い振動（Actuator）、中クリックへの割り当て（体感で確認済み）
     - 3・4 本指ジェスチャー: 仮想デスクトップの切り替え、タスクビュー、デスクトップの表示、アプリの切り替え（agent/mtp_actions.c の表で割り当て）
-    - まだないもの: 慣性スクロール、設定画面、ランチャー（4 本指の上下を空けてある）、割り当ての変更
+    - 設定: agent/mtp_settings（HKCU\Software\MTP\Agent）。設定画面 settings/MtpSettings.cs（WPF、Windows 標準の csc でビルド）で
+      変えると、常駐アプリが登録メッセージ MTP_SETTINGS_CHANGED を受けてその場で読み直す。振動の試し打ちは MTP_HAPTIC_TEST
+    - まだないもの: 慣性スクロール、ランチャー（4 本指の上下を空けてある）
 - 導入手順: `docs/INSTALL-SPIKE.md`（BT スパイク）、`docs/INSTALL-USB.md`（方式 B）
 - 製品版ツール層の言語は未決（候補: C#/.NET、Python 継続、Go）

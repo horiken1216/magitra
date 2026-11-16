@@ -3,11 +3,13 @@
  *
  * - 読み取りスレッドが WinUSB からフレームを読み、mtp_gesture で入力に変換して SendInput で送る
  * - USB ケーブルを抜いても終了しない。2 秒ごとに再接続を試みる
- * - トレイのメニュー: 一時停止 / ナチュラルスクロール / Force Touch / 3・4本指ジェスチャー / ログオン時に起動 / 終了
- * - 3・4 本指のスワイプは mtp_actions の割り当て（仮想デスクトップ、タスクビューなど）を実行する
- * - Force Touch（1 本指で強く押し込む）が成立すると、Actuator で振動させてから中クリックを送る
- * - 設定は HKCU\Software\MTP\Agent に保存する。ログオン時の起動は
- *   HKCU\Software\Microsoft\Windows\CurrentVersion\Run（ユーザーごと、管理者権限不要）にメニューから登録・解除する
+ * - 設定は mtp_settings（HKCU\Software\MTP\Agent）。設定画面（mtpsettings.exe）で変えると、
+ *   MTP_MSG_SETTINGS_CHANGED が届いてその場で読み直す（再起動は要らない）
+ * - トレイのメニュー: 設定... / 一時停止 / ナチュラルスクロール / Force Touch / 3・4本指ジェスチャー / ログオン時に起動 / 終了
+ * - Force Touch が成立すると、設定の強さで振動させてから、割り当てた操作（既定は中クリック）を送る
+ * - 3・4 本指のスワイプは、設定の割り当てを実行する
+ * - ログオン時の起動は HKCU\Software\Microsoft\Windows\CurrentVersion\Run（ユーザーごと、管理者権限不要）に
+ *   メニューから登録・解除する
  * - 二重起動しない（2 つ目は案内を出して終了する）
  *
  * 制約（Windows の仕様）:
@@ -25,13 +27,14 @@
 #include "mtp_gesture.h"
 #include "mtp_haptic_out.h"
 #include "mtp_input.h"
+#include "mtp_settings.h"
 
 #define APP_NAME            L"MTP Agent"
-#define WINDOW_CLASS        L"MtpAgentTrayWindow"
+#define WINDOW_CLASS        MTP_AGENT_WINDOW_CLASS
 #define MUTEX_NAME          L"Local\\MtpAgentSingleInstance"
-#define SETTINGS_KEY        L"Software\\MTP\\Agent"
 #define RUN_KEY             L"Software\\Microsoft\\Windows\\CurrentVersion\\Run"
 #define RUN_VALUE           L"MTP Agent"
+#define SETTINGS_EXE        L"mtpsettings.exe"
 #define RECONNECT_MS        2000
 
 #define WM_TRAY             (WM_APP + 1)
@@ -44,6 +47,7 @@
 #define IDM_EXIT            104
 #define IDM_FORCE           105
 #define IDM_GESTURES        106
+#define IDM_SETTINGS        107
 
 typedef enum LINK_STATE {
     LINK_STARTING = 0,
@@ -55,14 +59,50 @@ typedef enum LINK_STATE {
 
 static HWND g_hwnd;
 static UINT g_taskbarCreated;
+static UINT g_msgSettingsChanged;
+static UINT g_msgHapticTest;
 static HANDLE g_stopEvent;
 static HANDLE g_worker;
 static volatile LONG g_paused = 0;
-static volatile LONG g_natural = 1;
-static volatile LONG g_force = 1;
-static volatile LONG g_gestures = 1;
-static MTP_HAPTIC_OUT g_haptic; /* 読み取りスレッドだけが使う */
 static volatile LONG g_state = LINK_STARTING;
+static MTP_HAPTIC_OUT g_haptic;   /* 読み取りスレッドだけが使う */
+static MTP_HAPTIC_OUT g_uiHaptic; /* メインスレッドだけが使う（設定画面の「試す」） */
+
+/*
+ * 設定。メインスレッドが書き、読み取りスレッドは版番号が変わったときだけ写しを取る。
+ */
+static CRITICAL_SECTION g_settingsLock;
+static MTP_SETTINGS g_settings;
+static volatile LONG g_settingsVersion = 0;
+
+static void GetSettings(MTP_SETTINGS *out)
+{
+    EnterCriticalSection(&g_settingsLock);
+    *out = g_settings;
+    LeaveCriticalSection(&g_settingsLock);
+}
+
+static void ReloadSettings(void)
+{
+    MTP_SETTINGS s;
+    MtpSettingsLoad(&s);
+    EnterCriticalSection(&g_settingsLock);
+    g_settings = s;
+    LeaveCriticalSection(&g_settingsLock);
+    InterlockedIncrement(&g_settingsVersion);
+}
+
+/* メニューの切り替え: 値を反転して保存し、読み取りスレッドへ知らせる */
+static void ToggleSetting(int *field, const wchar_t *name)
+{
+    DWORD next;
+    EnterCriticalSection(&g_settingsLock);
+    *field = !*field;
+    next = (DWORD)*field;
+    LeaveCriticalSection(&g_settingsLock);
+    MtpSettingsSaveValue(name, next);
+    InterlockedIncrement(&g_settingsVersion);
+}
 
 /*
  * 読み取りスレッドが開いているデバイス。終了時にメインスレッドから WinUsb_AbortPipe で読み取りを中断するために共有する。
@@ -95,25 +135,7 @@ static void AbortPendingRead(void)
     LeaveCriticalSection(&g_devLock);
 }
 
-/* ---- 設定 ---- */
-
-static DWORD ReadSettingDword(const wchar_t *name, DWORD fallback)
-{
-    DWORD value = 0, size = sizeof(value);
-    if (RegGetValueW(HKEY_CURRENT_USER, SETTINGS_KEY, name, RRF_RT_REG_DWORD, NULL, &value, &size) == ERROR_SUCCESS) {
-        return value;
-    }
-    return fallback;
-}
-
-static void WriteSettingDword(const wchar_t *name, DWORD value)
-{
-    HKEY key;
-    if (RegCreateKeyExW(HKEY_CURRENT_USER, SETTINGS_KEY, 0, NULL, 0, KEY_SET_VALUE, NULL, &key, NULL) == ERROR_SUCCESS) {
-        RegSetValueExW(key, name, 0, REG_DWORD, (const BYTE *)&value, sizeof(value));
-        RegCloseKey(key);
-    }
-}
+/* ---- ログオン時の起動 ---- */
 
 /* Run に登録する値（実行ファイルのパスを引用符で囲む） */
 static BOOL BuildRunCommand(wchar_t *out, DWORD capacity)
@@ -172,16 +194,17 @@ static void SetLinkState(LINK_STATE s)
     }
 }
 
-static void SendEvents(const MTP_EVENT *ev, size_t n)
+static void SendEvents(const MTP_SETTINGS *s, const MTP_EVENT *ev, size_t n)
 {
     size_t i;
     for (i = 0; i < n; i++) {
         if (ev[i].type == MTP_EVENT_FORCE) {
-            MTP_HAPTIC feel = MTP_HAPTIC_FORCE;
+            MTP_HAPTIC feel;
+            MtpSettingsHaptic(s, &feel);
             MtpHapticOutPlay(&g_haptic, &feel);
-            MtpActionRun(MTP_ACTION_MIDDLE_CLICK);
+            MtpActionRun((MTP_ACTION)s->force_action);
         } else if (ev[i].type == MTP_EVENT_SWIPE) {
-            MtpActionRun(MtpActionForSwipe(ev[i].fingers, ev[i].direction));
+            MtpActionRun(MtpSettingsSwipeAction(s, ev[i].fingers, ev[i].direction));
         } else {
             MtpInputSend(&ev[i]);
         }
@@ -195,12 +218,17 @@ static DWORD WINAPI WorkerMain(LPVOID param)
     int wasPaused = 0;
     MTP_GESTURE gesture;
     MTP_GESTURE_CONFIG config;
+    MTP_SETTINGS settings;
+    LONG seenVersion;
     MTP_EVENT events[MTP_GESTURE_MAX_EVENTS];
     size_t n;
 
     UNREFERENCED_PARAMETER(param);
     memset(&dev, 0, sizeof(dev));
-    MtpGestureDefaultConfig(&config);
+    seenVersion = InterlockedCompareExchange(&g_settingsVersion, 0, 0);
+    GetSettings(&settings);
+    MtpSettingsApply(&settings, &config);
+    MtpGestureInit(&gesture, &config);
     MtpHapticOutInit(&g_haptic);
 
     while (WaitForSingleObject(g_stopEvent, 0) == WAIT_TIMEOUT) {
@@ -210,6 +238,7 @@ static DWORD WINAPI WorkerMain(LPVOID param)
         MTP_READ_RESULT rr;
         DWORD err = 0;
         int paused;
+        LONG version;
 
         if (!connected) {
             MTP_DEVICE_STATUS ds = MtpDeviceOpen(&dev, &err);
@@ -220,9 +249,6 @@ static DWORD WINAPI WorkerMain(LPVOID param)
             }
             connected = 1;
             PublishDevice(&dev);
-            config.natural_scroll = (int)InterlockedCompareExchange(&g_natural, 0, 0);
-            config.force_enabled = (int)InterlockedCompareExchange(&g_force, 0, 0);
-            config.swipe_enabled = (int)InterlockedCompareExchange(&g_gestures, 0, 0);
             MtpGestureInit(&gesture, &config);
             SetLinkState(LINK_CONNECTED);
         }
@@ -230,7 +256,7 @@ static DWORD WINAPI WorkerMain(LPVOID param)
         rr = MtpDeviceRead(&dev, &frame, raw, sizeof(raw), &rawLength, &err);
         if (rr == MTP_READ_ERROR) {
             n = MtpGestureRelease(&gesture, events, MTP_GESTURE_MAX_EVENTS);
-            SendEvents(events, n);
+            SendEvents(&settings, events, n);
             CloseDevice(&dev);
             connected = 0;
             if (WaitForSingleObject(g_stopEvent, 0) == WAIT_OBJECT_0) {
@@ -241,11 +267,23 @@ static DWORD WINAPI WorkerMain(LPVOID param)
             continue;
         }
 
+        /*
+         * 設定が変わっていたら写しを取り直す。判定の状態（押し込みの見極め中など）はそのまま残し、
+         * 設定値だけを差し替える。見極め中の押し込みは最後まで見極める。
+         */
+        version = InterlockedCompareExchange(&g_settingsVersion, 0, 0);
+        if (version != seenVersion) {
+            seenVersion = version;
+            GetSettings(&settings);
+            MtpSettingsApply(&settings, &config);
+            gesture.config = config;
+        }
+
         /* 一時停止に入った瞬間に、押したままのボタンを離す */
         paused = (int)InterlockedCompareExchange(&g_paused, 0, 0);
         if (paused && !wasPaused) {
             n = MtpGestureRelease(&gesture, events, MTP_GESTURE_MAX_EVENTS);
-            SendEvents(events, n);
+            SendEvents(&settings, events, n);
         }
         if (!paused && wasPaused) {
             MtpGestureInit(&gesture, &config); /* 停止中の指の動きを引き継がない */
@@ -255,20 +293,13 @@ static DWORD WINAPI WorkerMain(LPVOID param)
         if (rr != MTP_READ_FRAME || paused) {
             continue;
         }
-        gesture.config.natural_scroll = (int)InterlockedCompareExchange(&g_natural, 0, 0);
-        config.natural_scroll = gesture.config.natural_scroll;
-        /* 押し込みの見極め中に切り替わっても、その押し込みは最後まで見極める（mtp_gesture の状態で続く） */
-        gesture.config.force_enabled = (int)InterlockedCompareExchange(&g_force, 0, 0);
-        config.force_enabled = gesture.config.force_enabled;
-        gesture.config.swipe_enabled = (int)InterlockedCompareExchange(&g_gestures, 0, 0);
-        config.swipe_enabled = gesture.config.swipe_enabled;
         n = MtpGestureProcess(&gesture, &frame, events, MTP_GESTURE_MAX_EVENTS);
-        SendEvents(events, n);
+        SendEvents(&settings, events, n);
     }
 
     if (connected) {
         n = MtpGestureRelease(&gesture, events, MTP_GESTURE_MAX_EVENTS);
-        SendEvents(events, n);
+        SendEvents(&settings, events, n);
         CloseDevice(&dev);
     }
     MtpHapticOutClose(&g_haptic);
@@ -315,22 +346,43 @@ static void RemoveTray(void)
     Shell_NotifyIconW(NIM_DELETE, &nid);
 }
 
+/* 同じフォルダーの設定画面を開く */
+static void OpenSettingsWindow(HWND hwnd)
+{
+    wchar_t path[MAX_PATH];
+    wchar_t *slash;
+    DWORD n = GetModuleFileNameW(NULL, path, MAX_PATH);
+    if (n == 0 || n >= MAX_PATH) {
+        return;
+    }
+    slash = wcsrchr(path, L'\\');
+    if (slash == NULL || (size_t)(slash - path) + 1 + wcslen(SETTINGS_EXE) >= MAX_PATH) {
+        return;
+    }
+    wcscpy_s(slash + 1, MAX_PATH - (size_t)(slash - path) - 1, SETTINGS_EXE);
+    if ((INT_PTR)ShellExecuteW(hwnd, L"open", path, NULL, NULL, SW_SHOWNORMAL) <= 32) {
+        MessageBoxW(hwnd, L"設定画面（mtpsettings.exe）を開けませんでした。mtpagent.exe と同じフォルダーにあるか確認してください。",
+            APP_NAME, MB_ICONWARNING | MB_OK);
+    }
+}
+
 static void ShowMenu(HWND hwnd)
 {
     HMENU menu = CreatePopupMenu();
     POINT pt;
     wchar_t status[160];
+    MTP_SETTINGS s;
 
+    GetSettings(&s);
     swprintf_s(status, ARRAYSIZE(status), L"状態: %s", StateText());
     AppendMenuW(menu, MF_STRING | MF_GRAYED, IDM_STATUS, status);
     AppendMenuW(menu, MF_SEPARATOR, 0, NULL);
+    AppendMenuW(menu, MF_STRING, IDM_SETTINGS, L"設定...");
+    AppendMenuW(menu, MF_SEPARATOR, 0, NULL);
     AppendMenuW(menu, MF_STRING | (InterlockedCompareExchange(&g_paused, 0, 0) ? MF_CHECKED : 0), IDM_PAUSE, L"一時停止");
-    AppendMenuW(menu, MF_STRING | (InterlockedCompareExchange(&g_natural, 0, 0) ? MF_CHECKED : 0), IDM_NATURAL,
-        L"ナチュラルスクロール");
-    AppendMenuW(menu, MF_STRING | (InterlockedCompareExchange(&g_force, 0, 0) ? MF_CHECKED : 0), IDM_FORCE,
-        L"Force Touch（強く押し込むと中クリック）");
-    AppendMenuW(menu, MF_STRING | (InterlockedCompareExchange(&g_gestures, 0, 0) ? MF_CHECKED : 0), IDM_GESTURES,
-        L"3・4本指ジェスチャー");
+    AppendMenuW(menu, MF_STRING | (s.natural_scroll ? MF_CHECKED : 0), IDM_NATURAL, L"ナチュラルスクロール");
+    AppendMenuW(menu, MF_STRING | (s.force_enabled ? MF_CHECKED : 0), IDM_FORCE, L"Force Touch");
+    AppendMenuW(menu, MF_STRING | (s.gestures_enabled ? MF_CHECKED : 0), IDM_GESTURES, L"3・4本指ジェスチャー");
     AppendMenuW(menu, MF_STRING | (IsAutostartEnabled() ? MF_CHECKED : 0), IDM_AUTOSTART, L"ログオン時に起動");
     AppendMenuW(menu, MF_SEPARATOR, 0, NULL);
     AppendMenuW(menu, MF_STRING, IDM_EXIT, L"終了");
@@ -345,28 +397,22 @@ static void ShowMenu(HWND hwnd)
 static void OnCommand(HWND hwnd, UINT id)
 {
     switch (id) {
+    case IDM_SETTINGS:
+        OpenSettingsWindow(hwnd);
+        break;
     case IDM_PAUSE:
         InterlockedExchange(&g_paused, !InterlockedCompareExchange(&g_paused, 0, 0));
         UpdateTray(NIM_MODIFY);
         break;
-    case IDM_NATURAL: {
-        LONG next = !InterlockedCompareExchange(&g_natural, 0, 0);
-        InterlockedExchange(&g_natural, next);
-        WriteSettingDword(L"NaturalScroll", (DWORD)next);
+    case IDM_NATURAL:
+        ToggleSetting(&g_settings.natural_scroll, L"NaturalScroll");
         break;
-    }
-    case IDM_FORCE: {
-        LONG next = !InterlockedCompareExchange(&g_force, 0, 0);
-        InterlockedExchange(&g_force, next);
-        WriteSettingDword(L"ForceTouch", (DWORD)next);
+    case IDM_FORCE:
+        ToggleSetting(&g_settings.force_enabled, L"ForceTouch");
         break;
-    }
-    case IDM_GESTURES: {
-        LONG next = !InterlockedCompareExchange(&g_gestures, 0, 0);
-        InterlockedExchange(&g_gestures, next);
-        WriteSettingDword(L"Gestures", (DWORD)next);
+    case IDM_GESTURES:
+        ToggleSetting(&g_settings.gestures_enabled, L"Gestures");
         break;
-    }
     case IDM_AUTOSTART:
         if (!SetAutostart(!IsAutostartEnabled())) {
             MessageBoxW(hwnd, L"ログオン時の起動の設定を変更できませんでした。", APP_NAME, MB_ICONWARNING | MB_OK);
@@ -386,6 +432,18 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
         UpdateTray(NIM_ADD); /* エクスプローラーが再起動したらアイコンを出し直す */
         return 0;
     }
+    if (msg == g_msgSettingsChanged && g_msgSettingsChanged != 0) {
+        ReloadSettings();
+        return 0;
+    }
+    if (msg == g_msgHapticTest && g_msgHapticTest != 0) {
+        /* 値の上限は MtpBuildActuatorReport が必ず丸める */
+        MTP_HAPTIC h;
+        h.strength = (uint8_t)(wParam & 0xFF);
+        h.sharpness = (uint8_t)((wParam >> 8) & 0xFF);
+        h.depth = (uint8_t)((wParam >> 16) & 0xFF);
+        return MtpHapticOutPlay(&g_uiHaptic, &h) ? 1 : 0;
+    }
     switch (msg) {
     case WM_TRAY:
         if (LOWORD(lParam) == WM_RBUTTONUP || LOWORD(lParam) == WM_LBUTTONUP || LOWORD(lParam) == WM_CONTEXTMENU) {
@@ -404,6 +462,7 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
         if (g_worker != NULL) {
             WaitForSingleObject(g_worker, 5000);
         }
+        MtpHapticOutClose(&g_uiHaptic);
         RemoveTray();
         PostQuitMessage(0);
         return 0;
@@ -431,11 +490,13 @@ int WINAPI wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev, _In_ PWSTR
     }
 
     InitializeCriticalSection(&g_devLock);
-    g_natural = (LONG)(ReadSettingDword(L"NaturalScroll", 1) != 0);
-    g_force = (LONG)(ReadSettingDword(L"ForceTouch", 1) != 0);
-    g_gestures = (LONG)(ReadSettingDword(L"Gestures", 1) != 0);
+    InitializeCriticalSection(&g_settingsLock);
+    MtpSettingsLoad(&g_settings);
+    MtpHapticOutInit(&g_uiHaptic);
     g_stopEvent = CreateEventW(NULL, TRUE, FALSE, NULL);
     g_taskbarCreated = RegisterWindowMessageW(L"TaskbarCreated");
+    g_msgSettingsChanged = RegisterWindowMessageW(MTP_MSG_SETTINGS_CHANGED);
+    g_msgHapticTest = RegisterWindowMessageW(MTP_MSG_HAPTIC_TEST);
 
     memset(&wc, 0, sizeof(wc));
     wc.cbSize = sizeof(wc);
@@ -445,7 +506,7 @@ int WINAPI wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev, _In_ PWSTR
     if (!RegisterClassExW(&wc)) {
         return 1;
     }
-    /* 見えないウィンドウ（トレイの通知とメニューの受け口） */
+    /* 見えないウィンドウ（トレイの通知とメニュー、設定画面からの知らせの受け口） */
     g_hwnd = CreateWindowExW(0, WINDOW_CLASS, APP_NAME, 0, 0, 0, 0, 0, NULL, NULL, instance, NULL);
     if (g_hwnd == NULL || g_stopEvent == NULL) {
         return 1;
@@ -465,6 +526,7 @@ int WINAPI wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev, _In_ PWSTR
 
     if (g_worker) CloseHandle(g_worker);
     CloseHandle(g_stopEvent);
+    DeleteCriticalSection(&g_settingsLock);
     DeleteCriticalSection(&g_devLock);
     ReleaseMutex(mutex);
     CloseHandle(mutex);

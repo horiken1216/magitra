@@ -14,8 +14,10 @@
  *     --log FILE       フレームごとの時刻・指の状態と座標・作ったイベントを FILE に書く
  *     --no-force       Force Touch を使わない（押した瞬間に左ボタンを送る）
  *     --no-gestures    3・4 本指のスワイプを使わない
+ *     --defaults       保存された設定（設定画面で変えた値）を使わず、既定値で動かす（試験の再現用）
  *
- * Force Touch が成立すると、Actuator で振動させてから中クリックを送る。
+ * 起動時に保存された設定（HKCU\Software\MTP\Agent、mtp_settings.h）を読み、上のオプションで上書きする。
+ * Force Touch が成立すると、Actuator で振動させてから割り当てた操作（既定は中クリック）を送る。
  * --dry-run でも振動は鳴らす（Windows への入力ではないので、手応えだけ確かめられる）。中クリックは送らない。
  */
 #include <windows.h>
@@ -29,9 +31,11 @@
 #include "mtp_gesture.h"
 #include "mtp_haptic_out.h"
 #include "mtp_input.h"
+#include "mtp_settings.h"
 
 static volatile LONG g_stop = 0;
 static MTP_HAPTIC_OUT g_haptic;
+static MTP_SETTINGS g_settings;
 
 static BOOL WINAPI OnConsoleCtrl(DWORD type)
 {
@@ -62,9 +66,18 @@ typedef struct STATS {
 static void ParseOptions(int argc, char **argv, OPTIONS *opt)
 {
     int i;
+    int useDefaults = 0;
     memset(opt, 0, sizeof(*opt));
     opt->seconds = -1;
-    MtpGestureDefaultConfig(&opt->gesture);
+    for (i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--defaults") == 0) useDefaults = 1;
+    }
+    if (useDefaults) {
+        MtpSettingsDefaults(&g_settings);
+    } else {
+        MtpSettingsLoad(&g_settings);
+    }
+    MtpSettingsApply(&g_settings, &opt->gesture);
     for (i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--seconds") == 0 && i + 1 < argc) opt->seconds = atof(argv[++i]);
         else if (strcmp(argv[i], "--dry-run") == 0) opt->dry_run = 1;
@@ -96,7 +109,7 @@ static void PrintEvent(FILE *out, const char *prefix, const MTP_EVENT *ev)
     case MTP_EVENT_SWIPE: {
         static const char *dirs[] = { "左", "右", "上", "下" };
         fprintf(out, "%s swipe %d本指 %s → %s\n", prefix, ev->fingers, dirs[ev->direction & 3],
-            MtpActionName(MtpActionForSwipe(ev->fingers, ev->direction)));
+            MtpActionName(MtpSettingsSwipeAction(&g_settings, ev->fingers, ev->direction)));
         break;
     }
     default:
@@ -120,9 +133,11 @@ static void Emit(const OPTIONS *opt, const MTP_EVENT *events, size_t count)
     size_t i;
     for (i = 0; i < count; i++) {
         if (events[i].type == MTP_EVENT_FORCE) {
-            MTP_HAPTIC feel = MTP_HAPTIC_FORCE;
+            MTP_HAPTIC feel;
             SYSTEMTIME st;
-            BOOL played = MtpHapticOutPlay(&g_haptic, &feel);
+            BOOL played;
+            MtpSettingsHaptic(&g_settings, &feel);
+            played = MtpHapticOutPlay(&g_haptic, &feel);
             GetLocalTime(&st);
             printf("[haptic] %02u:%02u:%02u.%03u %s\n", st.wHour, st.wMinute, st.wSecond, st.wMilliseconds,
                 played ? "振動を送った" : "振動を鳴らせなかった（Actuator が見つからないか、間隔が短すぎる）");
@@ -132,12 +147,12 @@ static void Emit(const OPTIONS *opt, const MTP_EVENT *events, size_t count)
             continue;
         }
         if (events[i].type == MTP_EVENT_FORCE) {
-            if (!MtpActionRun(MTP_ACTION_MIDDLE_CLICK)) {
+            if (!MtpActionRun((MTP_ACTION)g_settings.force_action)) {
                 printf("SendInput failed: %lu\n", GetLastError());
             }
         } else if (events[i].type == MTP_EVENT_SWIPE) {
             PrintEvent(stdout, "[gesture]", &events[i]);
-            if (!MtpActionRun(MtpActionForSwipe(events[i].fingers, events[i].direction))) {
+            if (!MtpActionRun(MtpSettingsSwipeAction(&g_settings, events[i].fingers, events[i].direction))) {
                 printf("SendInput failed: %lu\n", GetLastError());
             }
         } else if (!MtpInputSend(&events[i])) {

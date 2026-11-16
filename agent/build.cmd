@@ -18,18 +18,22 @@ set CFLAGS=/nologo /utf-8 /W4 /WX /I "%ROOT%\core\include" /I "%~dp0."
 
 cl %CFLAGS% "%~dp0mtp_gesture.c" "%~dp0tests\test_gesture.c" /Fo"%OUT%\\" /Fe"%OUT%\test_gesture.exe" || exit /b 1
 "%OUT%\test_gesture.exe" || exit /b 1
+rem Settings unit tests (do not touch the registry)
+cl %CFLAGS% "%~dp0mtp_settings.c" "%~dp0mtp_actions.c" "%~dp0mtp_input.c" "%~dp0mtp_gesture.c" "%~dp0tests\test_settings.c" ^
+  /Fo"%OUT%\\" /Fe"%OUT%\test_settings.exe" /link advapi32.lib user32.lib || exit /b 1
+"%OUT%\test_settings.exe" || exit /b 1
 rem Replays mtpagent-cli --log recordings through the gesture logic
 cl %CFLAGS% "%~dp0mtp_gesture.c" "%~dp0tests\replay_gesture.c" /Fo"%OUT%\\" /Fe"%OUT%\replay_gesture.exe" || exit /b 1
 if /i "%1"=="test" exit /b 0
 
-set COMMON="%~dp0mtp_gesture.c" "%~dp0mtp_device.c" "%~dp0mtp_input.c" "%~dp0mtp_haptic_out.c" "%~dp0mtp_actions.c" "%ROOT%\core\src\mtp_report.c" "%ROOT%\core\src\mtp_haptic.c"
+set COMMON="%~dp0mtp_gesture.c" "%~dp0mtp_device.c" "%~dp0mtp_input.c" "%~dp0mtp_haptic_out.c" "%~dp0mtp_actions.c" "%~dp0mtp_settings.c" "%ROOT%\core\src\mtp_report.c" "%ROOT%\core\src\mtp_haptic.c"
 
 if not exist "%OUT%\cli" mkdir "%OUT%\cli"
 if not exist "%OUT%\tray" mkdir "%OUT%\tray"
 
 rem Console version (diagnostics / tests)
 cl %CFLAGS% "%~dp0mtpagent_cli.c" %COMMON% /Fo"%OUT%\cli\\" /Fe"%OUT%\mtpagent-cli.exe" ^
-  /link winusb.lib cfgmgr32.lib user32.lib hid.lib || exit /b 1
+  /link winusb.lib cfgmgr32.lib user32.lib hid.lib advapi32.lib || exit /b 1
 echo Built: %OUT%\mtpagent-cli.exe
 
 rem Tray version (everyday use, no console window)

@@ -7,27 +7,6 @@
 
 #include "mtp_input.h"
 
-MTP_ACTION MtpActionForSwipe(int fingers, MTP_DIRECTION direction)
-{
-    if (fingers == 3) {
-        switch (direction) {
-        case MTP_DIR_LEFT: return MTP_ACTION_DESKTOP_NEXT;  /* Mac と同じ: 指を左へ払うと右隣へ */
-        case MTP_DIR_RIGHT: return MTP_ACTION_DESKTOP_PREV;
-        case MTP_DIR_UP: return MTP_ACTION_TASK_VIEW;       /* Mission Control に相当 */
-        case MTP_DIR_DOWN: return MTP_ACTION_SHOW_DESKTOP;
-        default: return MTP_ACTION_NONE;
-        }
-    }
-    if (fingers == 4) {
-        switch (direction) {
-        case MTP_DIR_LEFT:
-        case MTP_DIR_RIGHT: return MTP_ACTION_APP_SWITCH;
-        default: return MTP_ACTION_NONE; /* 4 本指の上下はランチャー用に空けておく */
-        }
-    }
-    return MTP_ACTION_NONE;
-}
-
 const char *MtpActionName(MTP_ACTION action)
 {
     switch (action) {
@@ -37,13 +16,18 @@ const char *MtpActionName(MTP_ACTION action)
     case MTP_ACTION_SHOW_DESKTOP: return "デスクトップの表示";
     case MTP_ACTION_APP_SWITCH: return "直前のアプリに切り替え";
     case MTP_ACTION_MIDDLE_CLICK: return "中クリック";
+    case MTP_ACTION_BROWSER_BACK: return "戻る";
+    case MTP_ACTION_BROWSER_FORWARD: return "進む";
+    case MTP_ACTION_PLAY_PAUSE: return "再生・一時停止";
+    case MTP_ACTION_SEARCH: return "検索";
     default: return "なし";
     }
 }
 
 static int IsExtendedKey(WORD vk)
 {
-    return vk == VK_LEFT || vk == VK_RIGHT || vk == VK_UP || vk == VK_DOWN || vk == VK_LWIN || vk == VK_RWIN;
+    return vk == VK_LEFT || vk == VK_RIGHT || vk == VK_UP || vk == VK_DOWN || vk == VK_LWIN || vk == VK_RWIN ||
+        vk == VK_MEDIA_PLAY_PAUSE;
 }
 
 /* keys を順に押し、逆順に離す（同時押し） */
@@ -90,6 +74,22 @@ BOOL MtpActionRun(MTP_ACTION action)
     }
     case MTP_ACTION_APP_SWITCH: {
         static const WORD k[] = { VK_LMENU, VK_TAB };
+        return SendChord(k, 2);
+    }
+    case MTP_ACTION_BROWSER_BACK: {
+        static const WORD k[] = { VK_LMENU, VK_LEFT };
+        return SendChord(k, 2);
+    }
+    case MTP_ACTION_BROWSER_FORWARD: {
+        static const WORD k[] = { VK_LMENU, VK_RIGHT };
+        return SendChord(k, 2);
+    }
+    case MTP_ACTION_PLAY_PAUSE: {
+        static const WORD k[] = { VK_MEDIA_PLAY_PAUSE };
+        return SendChord(k, 1);
+    }
+    case MTP_ACTION_SEARCH: {
+        static const WORD k[] = { VK_LWIN, 'S' };
         return SendChord(k, 2);
     }
     case MTP_ACTION_MIDDLE_CLICK:
