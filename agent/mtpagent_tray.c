@@ -3,7 +3,8 @@
  *
  * - 読み取りスレッドが WinUSB からフレームを読み、mtp_gesture で入力に変換して SendInput で送る
  * - USB ケーブルを抜いても終了しない。2 秒ごとに再接続を試みる
- * - トレイのメニュー: 一時停止 / ナチュラルスクロール / ログオン時に起動 / 終了
+ * - トレイのメニュー: 一時停止 / ナチュラルスクロール / Force Touch / ログオン時に起動 / 終了
+ * - Force Touch（1 本指で強く押し込む）が成立すると、Actuator で振動させてから中クリックを送る
  * - 設定は HKCU\Software\MTP\Agent に保存する。ログオン時の起動は
  *   HKCU\Software\Microsoft\Windows\CurrentVersion\Run（ユーザーごと、管理者権限不要）にメニューから登録・解除する
  * - 二重起動しない（2 つ目は案内を出して終了する）
@@ -20,6 +21,7 @@
 #include "mtp_core.h"
 #include "mtp_device.h"
 #include "mtp_gesture.h"
+#include "mtp_haptic_out.h"
 #include "mtp_input.h"
 
 #define APP_NAME            L"MTP Agent"
@@ -38,6 +40,7 @@
 #define IDM_NATURAL         102
 #define IDM_AUTOSTART       103
 #define IDM_EXIT            104
+#define IDM_FORCE           105
 
 typedef enum LINK_STATE {
     LINK_STARTING = 0,
@@ -53,6 +56,8 @@ static HANDLE g_stopEvent;
 static HANDLE g_worker;
 static volatile LONG g_paused = 0;
 static volatile LONG g_natural = 1;
+static volatile LONG g_force = 1;
+static MTP_HAPTIC_OUT g_haptic; /* 読み取りスレッドだけが使う */
 static volatile LONG g_state = LINK_STARTING;
 
 /*
@@ -167,7 +172,13 @@ static void SendEvents(const MTP_EVENT *ev, size_t n)
 {
     size_t i;
     for (i = 0; i < n; i++) {
-        MtpInputSend(&ev[i]);
+        if (ev[i].type == MTP_EVENT_FORCE) {
+            MTP_HAPTIC feel = MTP_HAPTIC_FORCE;
+            MtpHapticOutPlay(&g_haptic, &feel);
+            MtpInputForceAction();
+        } else {
+            MtpInputSend(&ev[i]);
+        }
     }
 }
 
@@ -184,6 +195,7 @@ static DWORD WINAPI WorkerMain(LPVOID param)
     UNREFERENCED_PARAMETER(param);
     memset(&dev, 0, sizeof(dev));
     MtpGestureDefaultConfig(&config);
+    MtpHapticOutInit(&g_haptic);
 
     while (WaitForSingleObject(g_stopEvent, 0) == WAIT_TIMEOUT) {
         UCHAR raw[1024];
@@ -203,6 +215,7 @@ static DWORD WINAPI WorkerMain(LPVOID param)
             connected = 1;
             PublishDevice(&dev);
             config.natural_scroll = (int)InterlockedCompareExchange(&g_natural, 0, 0);
+            config.force_enabled = (int)InterlockedCompareExchange(&g_force, 0, 0);
             MtpGestureInit(&gesture, &config);
             SetLinkState(LINK_CONNECTED);
         }
@@ -237,6 +250,9 @@ static DWORD WINAPI WorkerMain(LPVOID param)
         }
         gesture.config.natural_scroll = (int)InterlockedCompareExchange(&g_natural, 0, 0);
         config.natural_scroll = gesture.config.natural_scroll;
+        /* 押し込みの見極め中に切り替わっても、その押し込みは最後まで見極める（mtp_gesture の状態で続く） */
+        gesture.config.force_enabled = (int)InterlockedCompareExchange(&g_force, 0, 0);
+        config.force_enabled = gesture.config.force_enabled;
         n = MtpGestureProcess(&gesture, &frame, events, MTP_GESTURE_MAX_EVENTS);
         SendEvents(events, n);
     }
@@ -246,6 +262,7 @@ static DWORD WINAPI WorkerMain(LPVOID param)
         SendEvents(events, n);
         CloseDevice(&dev);
     }
+    MtpHapticOutClose(&g_haptic);
     return 0;
 }
 
@@ -301,6 +318,8 @@ static void ShowMenu(HWND hwnd)
     AppendMenuW(menu, MF_STRING | (InterlockedCompareExchange(&g_paused, 0, 0) ? MF_CHECKED : 0), IDM_PAUSE, L"一時停止");
     AppendMenuW(menu, MF_STRING | (InterlockedCompareExchange(&g_natural, 0, 0) ? MF_CHECKED : 0), IDM_NATURAL,
         L"ナチュラルスクロール");
+    AppendMenuW(menu, MF_STRING | (InterlockedCompareExchange(&g_force, 0, 0) ? MF_CHECKED : 0), IDM_FORCE,
+        L"Force Touch（強く押し込むと中クリック）");
     AppendMenuW(menu, MF_STRING | (IsAutostartEnabled() ? MF_CHECKED : 0), IDM_AUTOSTART, L"ログオン時に起動");
     AppendMenuW(menu, MF_SEPARATOR, 0, NULL);
     AppendMenuW(menu, MF_STRING, IDM_EXIT, L"終了");
@@ -323,6 +342,12 @@ static void OnCommand(HWND hwnd, UINT id)
         LONG next = !InterlockedCompareExchange(&g_natural, 0, 0);
         InterlockedExchange(&g_natural, next);
         WriteSettingDword(L"NaturalScroll", (DWORD)next);
+        break;
+    }
+    case IDM_FORCE: {
+        LONG next = !InterlockedCompareExchange(&g_force, 0, 0);
+        InterlockedExchange(&g_force, next);
+        WriteSettingDword(L"ForceTouch", (DWORD)next);
         break;
     }
     case IDM_AUTOSTART:
@@ -390,6 +415,7 @@ int WINAPI wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev, _In_ PWSTR
 
     InitializeCriticalSection(&g_devLock);
     g_natural = (LONG)(ReadSettingDword(L"NaturalScroll", 1) != 0);
+    g_force = (LONG)(ReadSettingDword(L"ForceTouch", 1) != 0);
     g_stopEvent = CreateEventW(NULL, TRUE, FALSE, NULL);
     g_taskbarCreated = RegisterWindowMessageW(L"TaskbarCreated");
 

@@ -12,6 +12,10 @@
  *     --pointer-gain F ポインターの基本倍率（既定 0.12）
  *     --scroll-gain F  スクロールの倍率（既定 0.6）
  *     --log FILE       フレームごとの時刻・指の状態と座標・作ったイベントを FILE に書く
+ *     --no-force       Force Touch を使わない（押した瞬間に左ボタンを送る）
+ *
+ * Force Touch が成立すると、Actuator で振動させてから中クリックを送る。
+ * --dry-run でも振動は鳴らす（Windows への入力ではないので、手応えだけ確かめられる）。中クリックは送らない。
  */
 #include <windows.h>
 #include <stdio.h>
@@ -21,9 +25,11 @@
 #include "mtp_core.h"
 #include "mtp_device.h"
 #include "mtp_gesture.h"
+#include "mtp_haptic_out.h"
 #include "mtp_input.h"
 
 static volatile LONG g_stop = 0;
+static MTP_HAPTIC_OUT g_haptic;
 
 static BOOL WINAPI OnConsoleCtrl(DWORD type)
 {
@@ -65,6 +71,7 @@ static void ParseOptions(int argc, char **argv, OPTIONS *opt)
         else if (strcmp(argv[i], "--pointer-gain") == 0 && i + 1 < argc) opt->gesture.pointer_gain = (float)atof(argv[++i]);
         else if (strcmp(argv[i], "--scroll-gain") == 0 && i + 1 < argc) opt->gesture.scroll_gain = (float)atof(argv[++i]);
         else if (strcmp(argv[i], "--log") == 0 && i + 1 < argc) opt->log_path = argv[++i];
+        else if (strcmp(argv[i], "--no-force") == 0) opt->gesture.force_enabled = 0;
     }
 }
 
@@ -79,6 +86,9 @@ static void PrintEvent(FILE *out, const char *prefix, const MTP_EVENT *ev)
         break;
     case MTP_EVENT_SCROLL:
         fprintf(out, "%s scroll h=%d v=%d\n", prefix, ev->dx, ev->dy);
+        break;
+    case MTP_EVENT_FORCE:
+        fprintf(out, "%s force\n", prefix);
         break;
     default:
         break;
@@ -100,11 +110,23 @@ static void Emit(const OPTIONS *opt, const MTP_EVENT *events, size_t count)
 {
     size_t i;
     for (i = 0; i < count; i++) {
+        if (events[i].type == MTP_EVENT_FORCE) {
+            MTP_HAPTIC feel = MTP_HAPTIC_FORCE;
+            SYSTEMTIME st;
+            BOOL played = MtpHapticOutPlay(&g_haptic, &feel);
+            GetLocalTime(&st);
+            printf("[haptic] %02u:%02u:%02u.%03u %s\n", st.wHour, st.wMinute, st.wSecond, st.wMilliseconds,
+                played ? "振動を送った" : "振動を鳴らせなかった（Actuator が見つからないか、間隔が短すぎる）");
+        }
         if (opt->dry_run) {
             PrintEvent(stdout, "[dry-run]", &events[i]);
             continue;
         }
-        if (!MtpInputSend(&events[i])) {
+        if (events[i].type == MTP_EVENT_FORCE) {
+            if (!MtpInputForceAction()) {
+                printf("SendInput failed: %lu\n", GetLastError());
+            }
+        } else if (!MtpInputSend(&events[i])) {
             printf("SendInput failed: %lu\n", GetLastError());
         }
         if (opt->verbose) {
@@ -129,6 +151,7 @@ int main(int argc, char **argv)
     int exitCode = 0;
 
     ParseOptions(argc, argv, &opt);
+    MtpHapticOutInit(&g_haptic);
     memset(&stats, 0, sizeof(stats));
     qpcLast.QuadPart = 0;
     QueryPerformanceFrequency(&qpf);
@@ -151,10 +174,11 @@ int main(int argc, char **argv)
     }
 
     MtpGestureInit(&gesture, &opt.gesture);
-    printf("mtpagent-cli 開始（%s%s、ナチュラルスクロール=%s、Ctrl+C で終了）\n",
+    printf("mtpagent-cli 開始（%s%s、ナチュラルスクロール=%s、Force Touch=%s、Ctrl+C で終了）\n",
         opt.dry_run ? "dry-run" : "入力を送る",
         opt.seconds >= 0 ? "、時間制限あり" : "",
-        opt.gesture.natural_scroll ? "オン" : "オフ");
+        opt.gesture.natural_scroll ? "オン" : "オフ",
+        opt.gesture.force_enabled ? "オン" : "オフ");
 
     start = GetTickCount64();
     QueryPerformanceCounter(&qpc0);
@@ -222,6 +246,7 @@ int main(int argc, char **argv)
     }
 
     if (log) fclose(log);
+    MtpHapticOutClose(&g_haptic);
     MtpDeviceClose(&dev);
     return exitCode;
 }

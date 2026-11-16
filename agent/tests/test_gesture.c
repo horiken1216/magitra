@@ -14,7 +14,8 @@ static int g_checks = 0;
     if (!(cond)) { g_failed++; printf("FAIL %s:%d: %s\n", __FILE__, __LINE__, #cond); } \
 } while (0)
 
-typedef struct { uint8_t id; int16_t x, y; uint8_t state; uint8_t major; } F;
+/* 指 1 本分。p（圧力）は省略すると 0 */
+typedef struct { uint8_t id; int16_t x, y; uint8_t state; uint8_t major; uint8_t p; } F;
 
 static MTP_FRAME Frame(int button, const F *fingers, int n)
 {
@@ -29,6 +30,7 @@ static MTP_FRAME Frame(int button, const F *fingers, int n)
         f.contacts[i].y = fingers[i].y;
         f.contacts[i].state = fingers[i].state;
         f.contacts[i].touch_major = fingers[i].major;
+        f.contacts[i].pressure = fingers[i].p;
     }
     return f;
 }
@@ -153,16 +155,39 @@ static void test_two_finger_scroll(void)
     CHECK(s != NULL && s->dy > 0);
 }
 
+/* 見極めの時間内に離した普通のクリック: 離したフレームで押下と解放をまとめて送る */
 static void test_left_click(void)
 {
     MTP_GESTURE g;
     MTP_EVENT ev[MTP_GESTURE_MAX_EVENTS];
-    F a = { 4, 0, 0, 2, 50 };
-    const MTP_EVENT *b;
+    F a = { 4, 0, 0, 2, 50, 150 }; /* 普通のクリックの圧力（実機で最大 156） */
     size_t n;
 
     MtpGestureInit(&g, NULL);
     Step(&g, 0, &a, 1, ev);
+    CHECK(Step(&g, 1, &a, 1, ev) == 0); /* 押した瞬間はまだ送らない */
+    CHECK(Step(&g, 1, &a, 1, ev) == 0);
+    n = Step(&g, 0, &a, 1, ev);
+    CHECK(n == 2);
+    CHECK(ev[0].type == MTP_EVENT_BUTTON && ev[0].button == MTP_BUTTON_LEFT && ev[0].down == 1);
+    CHECK(ev[1].type == MTP_EVENT_BUTTON && ev[1].button == MTP_BUTTON_LEFT && ev[1].down == 0);
+}
+
+/* 押したまま見極めの時間が過ぎたら、その時点で左ボタンの押下を送る（長押し・その場でのドラッグ開始用） */
+static void test_left_hold_after_window(void)
+{
+    MTP_GESTURE g;
+    MTP_EVENT ev[MTP_GESTURE_MAX_EVENTS];
+    F a = { 4, 0, 0, 2, 50, 150 };
+    const MTP_EVENT *b;
+    size_t n;
+    int i;
+
+    MtpGestureInit(&g, NULL);
+    Step(&g, 0, &a, 1, ev);
+    for (i = 1; i < g.config.force_window_frames; i++) {
+        CHECK(Step(&g, 1, &a, 1, ev) == 0);
+    }
     n = Step(&g, 1, &a, 1, ev);
     b = Find(ev, n, MTP_EVENT_BUTTON);
     CHECK(b != NULL && b->button == MTP_BUTTON_LEFT && b->down == 1);
@@ -172,6 +197,122 @@ static void test_left_click(void)
     n = Step(&g, 0, &a, 1, ev);
     b = Find(ev, n, MTP_EVENT_BUTTON);
     CHECK(b != NULL && b->button == MTP_BUTTON_LEFT && b->down == 0);
+}
+
+/* 強く押し込むと Force Touch。左ボタンは一切送らない */
+static void test_force_touch(void)
+{
+    MTP_GESTURE g;
+    MTP_EVENT ev[MTP_GESTURE_MAX_EVENTS];
+    F touch = { 2, 0, 0, 2, 50, 10 };
+    F hard = { 2, 0, 0, 2, 50, 253 };
+    size_t n;
+    int i, forces = 0;
+
+    MtpGestureInit(&g, NULL);
+    Step(&g, 0, &touch, 1, ev);
+    CHECK(Step(&g, 1, &hard, 1, ev) == 0); /* 1 フレーム目 */
+    CHECK(Step(&g, 1, &hard, 1, ev) == 0); /* 2 フレーム目 */
+    n = Step(&g, 1, &hard, 1, ev);         /* 3 フレーム続いたら成立 */
+    CHECK(n == 1 && ev[0].type == MTP_EVENT_FORCE);
+    /* 押したままでも 2 回目は出ない。ボタンイベントも出ない */
+    for (i = 0; i < 30; i++) {
+        size_t k;
+        n = Step(&g, 1, &hard, 1, ev);
+        for (k = 0; k < n; k++) {
+            if (ev[k].type == MTP_EVENT_FORCE) forces++;
+            CHECK(ev[k].type != MTP_EVENT_BUTTON);
+        }
+    }
+    CHECK(forces == 0);
+    CHECK(Step(&g, 0, &touch, 1, ev) == 0); /* 離しても何も出ない */
+    CHECK(MtpGestureRelease(&g, ev, 1) == 0);
+}
+
+/* 圧力が一瞬だけ上がっても（続かなければ）Force Touch にしない */
+static void test_force_needs_dwell(void)
+{
+    MTP_GESTURE g;
+    MTP_EVENT ev[MTP_GESTURE_MAX_EVENTS];
+    F low = { 2, 0, 0, 2, 50, 150 };
+    F high = { 2, 0, 0, 2, 50, 230 };
+    size_t n;
+
+    MtpGestureInit(&g, NULL);
+    Step(&g, 0, &low, 1, ev);
+    Step(&g, 1, &high, 1, ev);
+    Step(&g, 1, &high, 1, ev);
+    Step(&g, 1, &low, 1, ev); /* 2 フレームで途切れた */
+    n = Step(&g, 0, &low, 1, ev);
+    CHECK(n == 2 && ev[0].type == MTP_EVENT_BUTTON && ev[0].down == 1 && ev[1].down == 0);
+}
+
+/* 見極めの時間を過ぎてから強く押し込んでも Force Touch にしない（ドラッグ中の誤発動を防ぐ） */
+static void test_force_not_after_window(void)
+{
+    MTP_GESTURE g;
+    MTP_EVENT ev[MTP_GESTURE_MAX_EVENTS];
+    F low = { 2, 0, 0, 2, 50, 150 };
+    F high = { 2, 0, 0, 2, 50, 253 };
+    size_t n, k;
+    int i, forces = 0;
+
+    MtpGestureInit(&g, NULL);
+    Step(&g, 0, &low, 1, ev);
+    for (i = 0; i < g.config.force_window_frames; i++) {
+        Step(&g, 1, &low, 1, ev);
+    }
+    CHECK(g.press == MTP_PRESS_LEFT);
+    for (i = 0; i < 10; i++) {
+        n = Step(&g, 1, &high, 1, ev);
+        for (k = 0; k < n; k++) {
+            if (ev[k].type == MTP_EVENT_FORCE) forces++;
+        }
+    }
+    CHECK(forces == 0);
+}
+
+/* 押してすぐ動かし始めたら、見極めを打ち切ってドラッグにする */
+static void test_drag_starts_before_window(void)
+{
+    MTP_GESTURE g;
+    MTP_EVENT ev[MTP_GESTURE_MAX_EVENTS];
+    F a0 = { 2, 0, 0, 2, 50, 150 }, a1 = { 2, 60, 0, 2, 50, 150 }, a2 = { 2, 130, 0, 2, 50, 150 };
+    const MTP_EVENT *b, *m;
+    size_t n;
+
+    MtpGestureInit(&g, NULL);
+    Step(&g, 0, &a0, 1, ev);
+    CHECK(Step(&g, 1, &a0, 1, ev) == 0);
+    CHECK(Step(&g, 1, &a1, 1, ev) == 0); /* 60 単位: まだ見極め中。ポインターも動かさない */
+    n = Step(&g, 1, &a2, 1, ev);         /* 累計 130 単位: ドラッグ開始 */
+    b = Find(ev, n, MTP_EVENT_BUTTON);
+    m = Find(ev, n, MTP_EVENT_MOVE);
+    CHECK(b != NULL && b->button == MTP_BUTTON_LEFT && b->down == 1);
+    CHECK(m != NULL && m->dx > 0);
+    CHECK(n >= 2 && ev[0].type == MTP_EVENT_BUTTON); /* 押下を先に送ってから動かす */
+}
+
+/* Force Touch を切ると、押した瞬間に左ボタンを送る */
+static void test_force_disabled(void)
+{
+    MTP_GESTURE g;
+    MTP_GESTURE_CONFIG cfg;
+    MTP_EVENT ev[MTP_GESTURE_MAX_EVENTS];
+    F hard = { 2, 0, 0, 2, 50, 253 };
+    size_t n;
+    int i;
+
+    MtpGestureDefaultConfig(&cfg);
+    cfg.force_enabled = 0;
+    MtpGestureInit(&g, &cfg);
+    Step(&g, 0, &hard, 1, ev);
+    n = Step(&g, 1, &hard, 1, ev);
+    CHECK(n == 1 && ev[0].type == MTP_EVENT_BUTTON && ev[0].button == MTP_BUTTON_LEFT && ev[0].down == 1);
+    for (i = 0; i < 10; i++) {
+        n = Step(&g, 1, &hard, 1, ev);
+        CHECK(Find(ev, n, MTP_EVENT_FORCE) == NULL);
+    }
 }
 
 static void test_right_click_with_two_fingers(void)
@@ -207,9 +348,10 @@ static void test_click_drag_follows_moving_finger(void)
 
     MtpGestureInit(&g, NULL);
     Step(&g, 0, &press, 1, ev);
-    Step(&g, 1, &press, 1, ev);           /* 1 本で押す → 左ボタン */
+    Step(&g, 1, &press, 1, ev);           /* 1 本で押す → 見極め */
     CHECK(Step(&g, 1, both0, 2, ev) == 0); /* 2 本目を置いた瞬間は動かない */
-    n = Step(&g, 1, both1, 2, ev);         /* 2 本目を右へ動かす */
+    n = Step(&g, 1, both1, 2, ev);         /* 2 本目を右へ 100 単位動かす → ドラッグ開始 */
+    CHECK(Find(ev, n, MTP_EVENT_BUTTON) != NULL && Find(ev, n, MTP_EVENT_BUTTON)->button == MTP_BUTTON_LEFT);
     m = Find(ev, n, MTP_EVENT_MOVE);
     CHECK(m != NULL && m->dx > 0);
     CHECK(Find(ev, n, MTP_EVENT_SCROLL) == NULL); /* ボタン中はスクロールにしない */
@@ -262,10 +404,10 @@ static void test_lifting_contacts_are_not_fingers(void)
     n = Step(&g, 0, g1, 2, ev);
     CHECK(Find(ev, n, MTP_EVENT_MOVE) != NULL && Find(ev, n, MTP_EVENT_SCROLL) == NULL);
 
-    /* 右クリック判定にも数えない */
+    /* 右クリック判定にも数えない（1 本指の押し込みとして見極めに入る） */
     n = Step(&g, 1, g1, 2, ev);
-    m = Find(ev, n, MTP_EVENT_BUTTON);
-    CHECK(m != NULL && m->button == MTP_BUTTON_LEFT);
+    CHECK(Find(ev, n, MTP_EVENT_BUTTON) == NULL);
+    CHECK(g.press == MTP_PRESS_PENDING);
 }
 
 static void test_release_on_exit(void)
@@ -274,10 +416,22 @@ static void test_release_on_exit(void)
     MTP_EVENT ev[MTP_GESTURE_MAX_EVENTS];
     F a = { 1, 0, 0, 2, 50 };
 
+    int i;
+
     MtpGestureInit(&g, NULL);
     CHECK(MtpGestureRelease(&g, ev, 1) == 0);
     Step(&g, 0, &a, 1, ev);
     Step(&g, 1, &a, 1, ev);
+    /* 見極め中はまだ左ボタンを送っていないので、離すものはない */
+    CHECK(MtpGestureRelease(&g, ev, 1) == 0);
+    CHECK(g.press == MTP_PRESS_NONE);
+
+    /* 左ボタンを送った後なら、離すイベントを返す */
+    Step(&g, 0, &a, 1, ev);
+    for (i = 0; i < g.config.force_window_frames; i++) {
+        Step(&g, 1, &a, 1, ev);
+    }
+    CHECK(g.press == MTP_PRESS_LEFT);
     CHECK(MtpGestureRelease(&g, ev, 1) == 1);
     CHECK(ev[0].type == MTP_EVENT_BUTTON && ev[0].button == MTP_BUTTON_LEFT && ev[0].down == 0);
     CHECK(MtpGestureRelease(&g, ev, 1) == 0);
@@ -290,6 +444,12 @@ int main(void)
     test_subpixel_accumulates();
     test_two_finger_scroll();
     test_left_click();
+    test_left_hold_after_window();
+    test_force_touch();
+    test_force_needs_dwell();
+    test_force_not_after_window();
+    test_drag_starts_before_window();
+    test_force_disabled();
     test_right_click_with_two_fingers();
     test_click_drag_follows_moving_finger();
     test_finger_set_change_does_not_jump();

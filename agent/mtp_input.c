@@ -24,6 +24,8 @@ BOOL MtpInputSend(const MTP_EVENT *ev)
     case MTP_EVENT_BUTTON:
         if (ev->button == MTP_BUTTON_RIGHT) {
             in[0].mi.dwFlags = ev->down ? MOUSEEVENTF_RIGHTDOWN : MOUSEEVENTF_RIGHTUP;
+        } else if (ev->button == MTP_BUTTON_MIDDLE) {
+            in[0].mi.dwFlags = ev->down ? MOUSEEVENTF_MIDDLEDOWN : MOUSEEVENTF_MIDDLEUP;
         } else {
             in[0].mi.dwFlags = ev->down ? MOUSEEVENTF_LEFTDOWN : MOUSEEVENTF_LEFTUP;
         }
@@ -48,4 +50,17 @@ BOOL MtpInputSend(const MTP_EVENT *ev)
         return TRUE;
     }
     return SendInput(n, in, sizeof(INPUT)) == n;
+}
+
+BOOL MtpInputForceAction(void)
+{
+    /* Force Touch の割り当て: 中クリック（押下と解放） */
+    MTP_EVENT down, up;
+    memset(&down, 0, sizeof(down));
+    down.type = MTP_EVENT_BUTTON;
+    down.button = MTP_BUTTON_MIDDLE;
+    down.down = 1;
+    up = down;
+    up.down = 0;
+    return MtpInputSend(&down) && MtpInputSend(&up);
 }

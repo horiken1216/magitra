@@ -14,8 +14,11 @@
 extern "C" {
 #endif
 
-/* 1 件送る。成功なら TRUE。失敗時は GetLastError() で理由が分かる */
+/* 1 件送る。成功なら TRUE。失敗時は GetLastError() で理由が分かる。MTP_EVENT_FORCE は送らない（下を使う） */
 BOOL MtpInputSend(const MTP_EVENT *ev);
+
+/* Force Touch に割り当てた操作を送る（今は中クリック） */
+BOOL MtpInputForceAction(void);
 
 #ifdef __cplusplus
 }
