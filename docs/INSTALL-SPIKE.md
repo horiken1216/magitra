@@ -16,9 +16,10 @@ MtpBth は Magic Trackpad 2（Bluetooth）の生フレームを取り出して�
 
 ```bat
 drivers\build.cmd Debug
+tools\mtpdump\build.cmd
 ```
 
-`build\drivers\Debug\MtpBth\` に `MtpBth.sys` と `MtpBth.inf` ができる。
+`build\drivers\Debug\MtpBth\` に `MtpBth.sys` と `MtpBth.inf`、`build\mtpdump\` に確認ツール `mtpdump.exe` ができる。
 
 ## 2. テスト署名用の証明書を作る（初回のみ）
 
@@ -94,3 +95,5 @@ bcdedit /set testsigning off
 certutil -delstore Root "MTP Test Signing"
 certutil -delstore TrustedPublisher "MTP Test Signing"
 ```
+
+`bcdedit` の変更は次回起動から効く。再起動し、デスクトップ右下の「テスト モード」表示が消えたことを確認して完了。

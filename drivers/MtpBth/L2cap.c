@@ -100,15 +100,28 @@ MtpCloseChannel(_In_ PDEVICE_CONTEXT Ctx, _Inout_ L2CAP_CHANNEL_HANDLE *Handle)
 {
     struct _BRB_L2CA_CLOSE_CHANNEL *brb;
 
+    NTSTATUS status;
+
     if (*Handle == NULL) {
         return;
     }
     brb = (struct _BRB_L2CA_CLOSE_CHANNEL *)Ctx->Profile.BthAllocateBrb(BRB_L2CA_CLOSE_CHANNEL, MTP_POOL_TAG);
-    if (brb != NULL) {
-        brb->BtAddress = Ctx->RemoteAddress;
-        brb->ChannelHandle = *Handle;
-        (VOID)MtpSendBrbSync(Ctx, (PBRB)brb, sizeof(*brb));
-        Ctx->Profile.BthFreeBrb((PBRB)brb);
+    if (brb == NULL) {
+        /* 閉じる要求を出せていないのでチャネルは残っている。ハンドルを保持し、次の切断・再接続で閉じ直す */
+        MtpSetFailure(Ctx, MtpLinkDisconnected, STATUS_INSUFFICIENT_RESOURCES);
+        return;
+    }
+    brb->BtAddress = Ctx->RemoteAddress;
+    brb->ChannelHandle = *Handle;
+    status = MtpSendBrbSync(Ctx, (PBRB)brb, sizeof(*brb));
+    Ctx->Profile.BthFreeBrb((PBRB)brb);
+
+    /*
+     * クローズ要求自体の失敗は、相手側の切断で既にチャネルが消えている場合が大半なので、ハンドルは手放す。
+     * 保持して閉じ直し続けると、消えたチャネルのために再接続が進まなくなる。失敗は状態として残す。
+     */
+    if (!NT_SUCCESS(status)) {
+        MtpSetFailure(Ctx, MtpLinkDisconnected, status);
     }
     *Handle = NULL;
 }
@@ -225,6 +238,16 @@ MtpSubmitReader(_In_ PMTP_READER Reader)
         }
         return status;
     }
+
+    /*
+     * 送信後に停止フラグを読み直す。MtpDisconnect は「Stopping = 1 → 全要求をキャンセル」の順で動くので、
+     * - その前に送信していれば、MtpDisconnect のキャンセルがこの要求に届く
+     * - その後に送信していれば、ここで Stopping = 1 が見えるので自分でキャンセルする
+     * どちらの順でも、停止後に投入された要求が取り残されて ReadersIdle の待機が終わらなくなることはない。
+     */
+    if (InterlockedCompareExchange(&ctx->Stopping, 0, 0) != 0) {
+        (VOID)WdfRequestCancelSentRequest(Reader->Request);
+    }
     return STATUS_SUCCESS;
 }
 
@@ -314,6 +337,13 @@ MtpConnect(_In_ PDEVICE_CONTEXT Ctx)
     /* 前回の残りを片付けてから張り直す */
     MtpDisconnect(Ctx);
     InterlockedExchange(&Ctx->Stopping, 0);
+
+    /* 閉じ切れなかったチャネルが残っている間は張り直さない（ハンドルを上書きして見失うため） */
+    if (Ctx->ControlChannel != NULL || Ctx->InterruptChannel != NULL) {
+        status = STATUS_DEVICE_BUSY;
+        MtpSetFailure(Ctx, MtpLinkDisconnected, status);
+        return status;
+    }
 
     status = MtpOpenChannel(Ctx, MTP_PSM_HID_CONTROL, &Ctx->ControlChannel);
     if (!NT_SUCCESS(status)) {
