@@ -40,11 +40,11 @@ python probe\caps.py
 |---|---|
 | UIAccess 版を導入する（おすすめ） | 管理者権限のウィンドウ（タスクマネージャーなど）でも操作できる。その場限りの証明書を作って署名し、公開鍵だけをこの PC の「信頼されたルート」に登録する |
 | 標準版を導入する | 証明書の信頼は不要。管理者権限のウィンドウでは操作できない。UIAccess 版が動かなくなったとき（管理ツールが証明書を取り除いた場合など）は、これを選んで入れ直す |
-| 取り除く | WinUSB を外して標準のマウスに戻し、証明書・`C:\Program Files\MTP`・「アプリ」の一覧の登録を消す（ユーザーの設定は残る） |
+| 取り除く | WinUSB を外して標準のマウスに戻し、証明書・`C:\Program Files\MAGITRA`・「アプリ」の一覧の登録を消す（ユーザーの設定は残る） |
 
 選べるオプション（どれも既定でオン）:
 
-- **ロック中とログオン前は、標準のマウスとして使えるようにする**: サービス MtpSwitch（システム権限・自動起動）を登録する。
+- **ロック中とログオン前は、標準のマウスとして使えるようにする**: サービス MagitraSwitch（システム権限・自動起動）を登録する。
   ログオンして使っている間だけ WinUSB、それ以外（ログオン画面・ロック中・ログオフ中）は Windows 標準の HID に切り替える。
   標準の HID でもポインター移動と左右のクリックは使える。切り替えには 2〜3 秒かかる
 - **ログオンしたら常駐アプリを自動で起動する**: ログオン直後にサービスが常駐アプリを起動する（約 1 秒）
@@ -54,10 +54,10 @@ python probe\caps.py
 
 | 場所 | 内容 |
 |---|---|
-| `C:\Program Files\MTP\` | 常駐アプリ `mtpagent.exe`、設定画面 `mtpsettings.exe`、ランチャー `mtplauncher.exe`、サービス `mtpswitchsvc.exe`、手動で切り替える道具 `mtpswitch.exe`、インストーラー `mtpsetup.exe` |
+| `C:\Program Files\MAGITRA\` | 常駐アプリ `mtpagent.exe`、設定画面 `mtpsettings.exe`、ランチャー `mtplauncher.exe`、サービス `mtpswitchsvc.exe`、手動で切り替える道具 `mtpswitch.exe`、インストーラー `mtpsetup.exe` |
 | ドライバーストア | WinUSB を当てる INF（`MtpUsb.inf`、Magic Trackpad の MI_01 だけが対象） |
-| 証明書ストア | 導入ごとに作る署名用の証明書（`CN=MTP Local Signing`）。署名したらすぐ秘密鍵を消すので、ほかのものには署名できない |
-| `HKCU\Software\MTP\Agent` | ユーザーごとの設定（設定画面で変えたときに作られる） |
+| 証明書ストア | 導入ごとに作る署名用の証明書（`CN=MAGITRA Local Signing`）。署名したらすぐ秘密鍵を消すので、ほかのものには署名できない |
+| `HKCU\Software\MAGITRA\Agent` | ユーザーごとの設定（設定画面で変えたときに作られる） |
 
 ### 証明書について
 
@@ -76,19 +76,19 @@ python probe\caps.py
 
 ## 取り除く
 
-「設定」→「アプリ」の一覧の「MAGITRA」からアンインストールするか、`C:\Program Files\MTP\mtpsetup.exe` で「取り除く」を選ぶ。
-WinUSB が外れ、トラックパッドは Windows 標準のマウスに戻る。ユーザーの設定（`HKCU\Software\MTP\Agent`）は残る。
+「設定」→「アプリ」の一覧の「MAGITRA」からアンインストールするか、`C:\Program Files\MAGITRA\mtpsetup.exe` で「取り除く」を選ぶ。
+WinUSB が外れ、トラックパッドは Windows 標準のマウスに戻る。ユーザーの設定（`HKCU\Software\MAGITRA\Agent`）は残る。
 
 ## 困ったとき
 
 | 症状 | 確かめること |
 |---|---|
-| トラックパッドが動かない | タスクトレイに虎のアイコンがあるか（なければ `C:\Program Files\MTP\mtpagent.exe` を起動）。アイコンにマウスを重ねると状態が出る |
-| 常駐アプリが「見つかりません」と言う | USB ケーブルがデータ通信用か。WinUSB が入っているか（`C:\Program Files\MTP\mtpswitch.exe status`） |
-| ロック画面で動かない | サービスを入れたか（インストーラーのオプション）。記録は `C:\ProgramData\MTP\switch.log` |
+| トラックパッドが動かない | タスクトレイに虎のアイコンがあるか（なければ `C:\Program Files\MAGITRA\mtpagent.exe` を起動）。アイコンにマウスを重ねると状態が出る |
+| 常駐アプリが「見つかりません」と言う | USB ケーブルがデータ通信用か。WinUSB が入っているか（`C:\Program Files\MAGITRA\mtpswitch.exe status`） |
+| ロック画面で動かない | サービスを入れたか（インストーラーのオプション）。記録は `C:\ProgramData\MAGITRA\switch.log` |
 | 管理者権限のウィンドウで操作できない | 標準版を入れている。UIAccess 版で入れ直す |
 | UIAccess 版が起動しなくなった | 証明書が取り除かれた可能性がある。インストーラーでもう一度導入するか、標準版で入れ直す |
-| すぐに標準のマウスに戻したい | 管理者権限で `C:\Program Files\MTP\mtpswitch.exe hid`（戻すときは `winusb`） |
+| すぐに標準のマウスに戻したい | 管理者権限で `C:\Program Files\MAGITRA\mtpswitch.exe hid`（戻すときは `winusb`） |
 
 ## できないこと
 

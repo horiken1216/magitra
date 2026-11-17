@@ -1,5 +1,5 @@
 /*
- * mtpswitchsvc.c - ロック中・ログオン前だけ、Magic Trackpad を Windows 標準の HID に戻すサービス（MtpSwitch）
+ * mtpswitchsvc.c - ロック中・ログオン前だけ、Magic Trackpad を Windows 標準の HID に戻すサービス（MagitraSwitch）
  *
  * WinUSB を当てた MI_01 は Windows のマウスとして扱われないため、常駐アプリが動かないログオン画面・ロック画面では
  * トラックパッドが使えない。このサービスは、その間だけ MI_01 を標準の HidUsb に戻し、普通のマウスとして使えるようにする
@@ -14,7 +14,7 @@
  *
  * 切り替えには 2〜5 秒かかる（実機、2026-11-16）。切り替えは作業スレッドで 1 つずつ行い、知らせが重なったら最新の状態に合わせる。
  * トラックパッドを挿し直すと Windows は WinUSB を優先して当てるので、機器の到着の知らせでも見直す。念のため 30 秒ごとにも見直す。
- * 記録: %ProgramData%\MTP\switch.log（1 MB を超えたら .old に回す）
+ * 記録: %ProgramData%\MAGITRA\switch.log（1 MB を超えたら .old に回す）
  *
  * 使い方: サービスとして登録して使う（インストーラーが登録する）。
  *   mtpswitchsvc.exe --once   今の状態に一度だけ合わせて終わる（試験用。管理者権限で）
@@ -33,7 +33,7 @@
 
 #include "mtp_switch.h"
 
-#define SERVICE_NAME      L"MtpSwitch"
+#define SERVICE_NAME      L"MagitraSwitch"
 #define RECHECK_MS        30000
 #define DEBOUNCE_MS       500
 /*
@@ -62,7 +62,7 @@ static void LogPath(wchar_t *path, DWORD len, BOOL old)
     if (GetEnvironmentVariableW(L"ProgramData", base, MAX_PATH) == 0) {
         wcscpy_s(base, MAX_PATH, L"C:\\ProgramData");
     }
-    swprintf_s(path, len, L"%s\\MTP\\switch.log%s", base, old ? L".old" : L"");
+    swprintf_s(path, len, L"%s\\MAGITRA\\switch.log%s", base, old ? L".old" : L"");
 }
 
 static void WriteLog(const wchar_t *message)
@@ -177,11 +177,11 @@ static void Reconcile(const wchar_t *reason)
 /*
  * Windows の自動起動（Run）は、登録されたアプリを 1 つずつ順に起動するので、ほかのアプリが多いと
  * 常駐アプリの番が来るまで 40 秒以上かかる（実機、2026-11-16）。そこで、ログオンを知った時点でこのサービスが起動する。
- * 起動するのは、利用者が「ログオン時に起動」を選んでいる（Run に MTP Agent がある）ときだけ。
+ * 起動するのは、利用者が「ログオン時に起動」を選んでいる（Run に MAGITRA がある）ときだけ。
  * あとで Run からも起動されるが、/autostart 付きなので、2 つ目は何も出さずに終わる。
  */
 
-/* 利用者の Run に MTP Agent があるか（HKEY_USERS\<SID> から読む） */
+/* 利用者の Run に MAGITRA があるか（HKEY_USERS\<SID> から読む） */
 static BOOL UserWantsAutostart(HANDLE token)
 {
     BYTE buf[256];
@@ -195,7 +195,7 @@ static BOOL UserWantsAutostart(HANDLE token)
         return FALSE;
     }
     swprintf_s(key, ARRAYSIZE(key), L"%s\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", sid);
-    wants = RegGetValueW(HKEY_USERS, key, L"MTP Agent", RRF_RT_REG_SZ, NULL, NULL, NULL) == ERROR_SUCCESS;
+    wants = RegGetValueW(HKEY_USERS, key, L"MAGITRA", RRF_RT_REG_SZ, NULL, NULL, NULL) == ERROR_SUCCESS;
     LocalFree(sid);
     return wants;
 }
@@ -205,7 +205,7 @@ static BOOL InstalledAsUiAccess(void)
 {
     wchar_t mode[32];
     DWORD size = sizeof(mode);
-    return RegGetValueW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\MTP\\Installer", L"Mode", RRF_RT_REG_SZ, NULL, mode, &size) == ERROR_SUCCESS &&
+    return RegGetValueW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\MAGITRA\\Installer", L"Mode", RRF_RT_REG_SZ, NULL, mode, &size) == ERROR_SUCCESS &&
         _wcsicmp(mode, L"UIAccess") == 0;
 }
 

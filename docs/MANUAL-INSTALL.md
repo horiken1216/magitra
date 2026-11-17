@@ -31,14 +31,14 @@ tools\mtpusbdump\build.cmd
 ## 2. 証明書を作り、カタログに署名する
 
 ```powershell
-$cert = Get-ChildItem Cert:\CurrentUser\My | Where-Object Subject -eq "CN=MTP Test Signing" | Select-Object -First 1
+$cert = Get-ChildItem Cert:\CurrentUser\My | Where-Object Subject -eq "CN=MAGITRA Test Signing" | Select-Object -First 1
 if (-not $cert) {
-  $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=MTP Test Signing" `
+  $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=MAGITRA Test Signing" `
     -CertStoreLocation Cert:\CurrentUser\My -KeyUsage DigitalSignature -NotAfter (Get-Date).AddYears(2)
 }
 Export-Certificate -Cert $cert -FilePath build\MtpTest.cer | Out-Null
 $kit = "${env:ProgramFiles(x86)}\Windows Kits\10\bin\10.0.26100.0"
-& "$kit\x64\signtool.exe" sign /fd sha256 /s My /n "MTP Test Signing" build\drivers\MtpUsb\mtpusb.cat
+& "$kit\x64\signtool.exe" sign /fd sha256 /s My /n "MAGITRA Test Signing" build\drivers\MtpUsb\mtpusb.cat
 ```
 
 `package.cmd` を実行し直すとカタログが作り直されるので、署名もやり直す。
@@ -98,7 +98,7 @@ build\agent\mtpagent.exe
 ## 7. UIAccess 版を入れる（管理者権限のウィンドウでも操作できるようにする）
 
 普通の `mtpagent.exe` は、管理者権限で動いているウィンドウ（タスクマネージャーなど）に入力を送れない。
-**UIAccess 版**を `C:\Program Files\MTP` に入れると送れるようになる。
+**UIAccess 版**を `C:\Program Files\MAGITRA` に入れると送れるようになる。
 Windows は、UIAccess 版を「信頼された証明書で署名され、保護されたフォルダーに置かれている」ときだけ起動する。
 
 1. トレイのメニューの「終了」で常駐アプリを止める
@@ -110,14 +110,14 @@ Windows は、UIAccess 版を「信頼された証明書で署名され、保護
    powershell -ExecutionPolicy Bypass -File tools\manual-install\install.ps1
    ```
 
-5. **普段の画面で**（管理者として実行しない）、エクスプローラーから `C:\Program Files\MTP\mtpagent.exe` を起動する
+5. **普段の画面で**（管理者として実行しない）、エクスプローラーから `C:\Program Files\MAGITRA\mtpagent.exe` を起動する
 6. UIAccess が効いているか確かめる（管理者権限は不要）
 
    ```powershell
    powershell -ExecutionPolicy Bypass -File tools\manual-install\check_uiaccess.ps1
    ```
 
-   `path = C:\Program Files\MTP\mtpagent.exe`、`uiAccess = True`、`elevated = False` なら成功
+   `path = C:\Program Files\MAGITRA\mtpagent.exe`、`uiAccess = True`、`elevated = False` なら成功
 
 取り除くときは、常駐アプリと設定画面を終了してから
 `powershell -ExecutionPolicy Bypass -File tools\manual-install\uninstall.ps1`（WinUSB・証明書・設定は残る）。
@@ -127,14 +127,14 @@ Windows は、UIAccess 版を「信頼された証明書で署名され、保護
 常駐アプリをメニューの「終了」で止め、「ログオン時に起動」をオンにしていた場合は先にオフにしておく。
 
 ```powershell
-pnputil /enum-drivers | Select-String -Context 1,4 "MTP Project"   # oemNN.inf の番号を確認
+pnputil /enum-drivers | Select-String -Context 1,4 "MAGITRA"   # oemNN.inf の番号を確認
 pnputil /delete-driver oemNN.inf /uninstall /force
 ```
 
 USB ケーブルを抜き差しすると、MI_01 は Windows 標準の HID ドライバーに戻る。証明書も削除する。
 
 ```powershell
-certutil -delstore Root "MTP Test Signing"
-certutil -delstore TrustedPublisher "MTP Test Signing"
-Get-ChildItem Cert:\CurrentUser\My | Where-Object Subject -eq "CN=MTP Test Signing" | Remove-Item
+certutil -delstore Root "MAGITRA Test Signing"
+certutil -delstore TrustedPublisher "MAGITRA Test Signing"
+Get-ChildItem Cert:\CurrentUser\My | Where-Object Subject -eq "CN=MAGITRA Test Signing" | Remove-Item
 ```

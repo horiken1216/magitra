@@ -130,7 +130,7 @@ static MTP_DRIVER_MODE ModeOf(const wchar_t *service)
     return MTP_MODE_UNKNOWN;
 }
 
-/* %windir%\INF\oem*.inf のうち、MTP の WinUSB 用 INF（MtpUsb.DeviceDesc と MTP Project を含む）を探す */
+/* %windir%\INF\oem*.inf のうち、MAGITRA の WinUSB 用 INF（MtpUsb.DeviceDesc と提供元 MAGITRA を含む）を探す */
 static BOOL FindMtpInf(wchar_t *out, DWORD outLen)
 {
     wchar_t dir[MAX_PATH], pattern[MAX_PATH];
@@ -158,7 +158,7 @@ static BOOL FindMtpInf(wchar_t *out, DWORD outLen)
         }
         if (ReadFile(f, buf, sizeof(buf) - 1, &n, NULL)) {
             buf[n] = '\0';
-            if (strstr(buf, "MtpUsb.DeviceDesc") != NULL && strstr(buf, "MTP Project") != NULL) {
+            if (strstr(buf, "MtpUsb.DeviceDesc") != NULL && strstr(buf, "MAGITRA") != NULL) {
                 wcscpy_s(out, outLen, path);
                 found = TRUE;
             }
@@ -197,7 +197,7 @@ int MtpSwitchTo(MTP_DRIVER_MODE mode, MTP_SWITCH_LOG log)
 
     if (mode == MTP_MODE_WINUSB) {
         if (!FindMtpInf(inf, MAX_PATH)) {
-            Log(log, L"MTP の WinUSB 用 INF がドライバーストアにありません");
+            Log(log, L"MAGITRA の WinUSB 用 INF がドライバーストアにありません");
             return -1;
         }
     } else if (mode == MTP_MODE_HID) {

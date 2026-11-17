@@ -1,7 +1,7 @@
 /*
  * mtp_actions.h - ジェスチャーに割り当てる操作（キー操作・クリック）
  *
- * 値は設定（HKCU\Software\MTP\Agent）に保存し、設定画面（settings/）とも共有する。
+ * 値は設定（HKCU\Software\MAGITRA\Agent）に保存し、設定画面（settings/）とも共有する。
  * **既存の値は変えないこと**（保存済みの設定の意味が変わる）。追加は末尾に。
  */
 #ifndef MTP_ACTIONS_H

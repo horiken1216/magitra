@@ -1,5 +1,5 @@
 @echo off
-rem Build mtpswitchsvc.exe (the MtpSwitch Windows service) with VS 2022 Build Tools (x64)
+rem Build mtpswitchsvc.exe (the MagitraSwitch Windows service) with VS 2022 Build Tools (x64)
 setlocal
 set ROOT=%~dp0..
 set OUT=%ROOT%\build\service

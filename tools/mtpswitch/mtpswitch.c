@@ -1,5 +1,5 @@
 /*
- * mtpswitch.c - Magic Trackpad の MI_01 のドライバーを、Windows 標準の HID と WinUSB（MTP）の間で手動で切り替える道具
+ * mtpswitch.c - Magic Trackpad の MI_01 のドライバーを、Windows 標準の HID と WinUSB（MAGITRA）の間で手動で切り替える道具
  *
  * 普段はサービス（mtpswitchsvc.exe）がロック・ログオンに合わせて自動で切り替える。これは試験と、困ったときの手動の切り替え用。
  * 切り替えの処理は agent/mtp_switch.c（サービスと同じ）。
@@ -7,7 +7,7 @@
  * 使い方（hid と winusb は管理者権限で）:
  *   mtpswitch status   今のドライバーを表示する
  *   mtpswitch hid      Windows 標準の HID に切り替える
- *   mtpswitch winusb   WinUSB（MTP）に戻す
+ *   mtpswitch winusb   WinUSB（MAGITRA）に戻す
  */
 #include <windows.h>
 #include <locale.h>

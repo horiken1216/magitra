@@ -1,5 +1,5 @@
 @echo off
-rem Build the MTP agent and its gesture unit tests with VS 2022 Build Tools (x64)
+rem Build the MAGITRA agent and its gesture unit tests with VS 2022 Build Tools (x64)
 rem Usage: build.cmd [test]   (test: build and run only the gesture unit tests)
 setlocal
 set ROOT=%~dp0..

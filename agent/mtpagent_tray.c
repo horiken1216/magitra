@@ -3,7 +3,7 @@
  *
  * - 読み取りスレッドが WinUSB からフレームを読み、mtp_gesture で入力に変換して SendInput で送る
  * - USB ケーブルを抜いても終了しない。2 秒ごとに再接続を試みる
- * - 設定は mtp_settings（HKCU\Software\MTP\Agent）。設定画面（mtpsettings.exe）で変えると、
+ * - 設定は mtp_settings（HKCU\Software\MAGITRA\Agent）。設定画面（mtpsettings.exe）で変えると、
  *   MTP_MSG_SETTINGS_CHANGED が届いてその場で読み直す（再起動は要らない）
  * - トレイのメニュー: 設定... / 一時停止 / ナチュラルスクロール / Force Touch / 3・4本指ジェスチャー / ログオン時に起動 / 終了
  * - Force Touch が成立すると、設定の強さで振動させてから、割り当てた操作（既定は中クリック）を送る
@@ -40,7 +40,7 @@
 #define MUTEX_NAME          L"Local\\MtpAgentSingleInstance"
 #define AUTOSTART_ARG       L"/autostart"
 #define RUN_KEY             L"Software\\Microsoft\\Windows\\CurrentVersion\\Run"
-#define RUN_VALUE           L"MTP Agent"
+#define RUN_VALUE           L"MAGITRA"
 #define SETTINGS_EXE        L"mtpsettings.exe"
 #define RECONNECT_MS        2000
 
@@ -74,7 +74,7 @@ static HANDLE g_worker;
 static volatile LONG g_paused = 0;
 /*
  * ロック中・切断中は 1。WinUSB のハンドルを閉じて、開き直さない。
- * ハンドルを開いたままだと、MtpSwitch サービスが標準の HID に切り替えても機器を止められず
+ * ハンドルを開いたままだと、MagitraSwitch サービスが標準の HID に切り替えても機器を止められず
  * （「再起動が必要」のまま）、WinUSB で動き続けてしまう。
  */
 static volatile LONG g_released = 0;
@@ -154,7 +154,7 @@ static void AbortPendingRead(void)
 /*
  * Run に登録する値（実行ファイルのパスを引用符で囲み、/autostart を付ける）。
  * /autostart で起動したときは、すでに起動していれば何も出さずに終わる。
- * MtpSwitch サービスがログオン直後に起動し、そのあと Windows が Run から起動することがあるため。
+ * MagitraSwitch サービスがログオン直後に起動し、そのあと Windows が Run から起動することがあるため。
  */
 static BOOL BuildRunCommand(wchar_t *out, DWORD capacity, BOOL withArg)
 {
@@ -738,7 +738,7 @@ int WINAPI wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev, _In_ PWSTR
     }
     UpdateTray(NIM_ADD);
     MtpLauncherStart(); /* ランチャーを隠れたまま起動しておく（呼び出したときにすぐ出るように） */
-    /* ロックされたらトラックパッドを手放す（MtpSwitch サービスが標準の HID に切り替えられるように） */
+    /* ロックされたらトラックパッドを手放す（MagitraSwitch サービスが標準の HID に切り替えられるように） */
     WTSRegisterSessionNotification(g_hwnd, NOTIFY_FOR_THIS_SESSION);
     InterlockedExchange(&g_released, IsOwnSessionLocked());
 

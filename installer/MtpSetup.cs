@@ -69,7 +69,7 @@ namespace Mtp
 
         static string ReadInstalledMode()
         {
-            using (RegistryKey key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\MTP\Installer"))
+            using (RegistryKey key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\MAGITRA\Installer"))
             {
                 return key == null ? null : key.GetValue("Mode") as string;
             }
@@ -78,7 +78,7 @@ namespace Mtp
         // 前回の導入でサービスを選んだか（初めての導入では既定でオン）
         static bool ReadInstalledService()
         {
-            using (RegistryKey key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\MTP\Installer"))
+            using (RegistryKey key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\MAGITRA\Installer"))
             {
                 if (key == null) return true;
                 object v = key.GetValue("LockScreenService");
@@ -98,7 +98,7 @@ namespace Mtp
                         store.Open(OpenFlags.ReadOnly);
                         foreach (X509Certificate2 c in store.Certificates)
                         {
-                            if (c.Subject == "CN=MTP Test Signing") return true;
+                            if (c.Subject == "CN=MAGITRA Test Signing") return true;
                         }
                     }
                     catch (Exception) { }
@@ -248,7 +248,7 @@ namespace Mtp
             syncOptions(null, null);
             optLegacy = new CheckBox
             {
-                Content = "手作業の手順で作った証明書（MTP Test Signing）を取り除く",
+                Content = "手作業の手順で作った証明書（MAGITRA Test Signing）を取り除く",
                 IsChecked = true,
                 Margin = new Thickness(0, 4, 0, 0),
                 Visibility = legacyCertExists ? Visibility.Visible : Visibility.Collapsed
@@ -308,8 +308,8 @@ namespace Mtp
             {
                 Bullet(list, "Magic Trackpad の USB インターフェイス（MI_01）から WinUSB を外し、Windows 標準のドライバーに戻します。");
                 Bullet(list, "インストーラーが登録した証明書の信頼を外します。");
-                Bullet(list, "ロック中の切り替えサービス（MtpSwitch）を登録していれば、止めて削除します。");
-                Bullet(list, @"C:\Program Files\MTP と、「アプリ」の一覧の登録を削除します。");
+                Bullet(list, "ロック中の切り替えサービス（MagitraSwitch）を登録していれば、止めて削除します。");
+                Bullet(list, @"C:\Program Files\MAGITRA と、「アプリ」の一覧の登録を削除します。");
                 Bullet(list, "ログオン時の起動の登録を外します。");
             }
             else
@@ -318,7 +318,7 @@ namespace Mtp
                 Bullet(list, "Magic Trackpad の USB インターフェイス（MI_01）に、Microsoft 署名済みの WinUSB ドライバーを当てます。"
                     + "常駐アプリがトラックパッドの生データを読むために必要です。WinUSB が当たっている間は、常駐アプリが動いていないと USB 接続のトラックパッドは動きません。");
                 Bullet(list, "その場限りの証明書を作り、MAGITRA のファイルに署名します。署名後すぐに秘密鍵を消すので、この証明書で他のものに署名することはできません。");
-                Bullet(list, @"C:\Program Files\MTP に" + (uiAccess ? " UIAccess 版の" : " 標準版の") + "常駐アプリ・設定画面・ランチャー・インストーラーをコピーし、「アプリ」の一覧に登録します。");
+                Bullet(list, @"C:\Program Files\MAGITRA に" + (uiAccess ? " UIAccess 版の" : " 標準版の") + "常駐アプリ・設定画面・ランチャー・インストーラーをコピーし、「アプリ」の一覧に登録します。");
                 if (optAutoStart.IsChecked == true)
                 {
                     Bullet(list, "ログオンしたときに常駐アプリが起動するよう、普段のユーザーに登録します。");
@@ -329,7 +329,7 @@ namespace Mtp
                 }
                 if (optService.IsChecked == true)
                 {
-                    Bullet(list, "サービス「MAGITRA ロック中の標準マウス切り替え」（MtpSwitch）を、システム権限で自動起動するよう登録します。"
+                    Bullet(list, "サービス「MAGITRA ロック中の標準マウス切り替え」（MagitraSwitch）を、システム権限で自動起動するよう登録します。"
                         + "ロック中とログオン前はトラックパッドを Windows 標準のドライバーに、ログオンして使っている間は WinUSB に切り替えます。"
                         + "ログオン時の起動を選んでいれば、ログオンした直後にこのサービスが常駐アプリを起動します（Windows の自動起動の順番待ちを避けるため）。");
                 }
@@ -351,7 +351,7 @@ namespace Mtp
             if (optLegacy.IsChecked == true && optLegacy.Visibility == Visibility.Visible)
             {
                 Section(list, "片付け");
-                Bullet(list, "手作業の手順で作った証明書（MTP Test Signing）を、信頼されたルートとユーザーの証明書ストアから取り除きます。");
+                Bullet(list, "手作業の手順で作った証明書（MAGITRA Test Signing）を、信頼されたルートとユーザーの証明書ストアから取り除きます。");
             }
             p.Children.Add(list);
             p.Children.Add(Para("会社の PC では、証明書やドライバーの変更が情報システム部門の規定で許されているか、先に確認してください。"));

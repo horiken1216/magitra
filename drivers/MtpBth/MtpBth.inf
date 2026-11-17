@@ -56,7 +56,7 @@ KmdfService = MtpBth, MtpBth_wdfsect
 KmdfLibraryVersion = $KMDFVERSION$
 
 [Strings]
-ProviderName        = "MTP Project"
-DiskName            = "MTP Installation Disk"
-MtpBth.DeviceDesc   = "Magic Trackpad (MTP Bluetooth spike)"
-MtpBth.ServiceDesc  = "MTP Magic Trackpad Bluetooth Driver"
+ProviderName        = "MAGITRA"
+DiskName            = "MAGITRA Installation Disk"
+MtpBth.DeviceDesc   = "Magic Trackpad (MAGITRA Bluetooth spike)"
+MtpBth.ServiceDesc  = "MAGITRA Magic Trackpad Bluetooth Driver"

@@ -1,5 +1,5 @@
 ﻿#Requires -RunAsAdministrator
-# setup-core.ps1 - MTP の導入・取り除きの本体（mtpsetup.exe が展開して呼び出す）
+# setup-core.ps1 - MAGITRA の導入・取り除きの本体（mtpsetup.exe が展開して呼び出す）
 #
 # 出力の各行は、画面（MtpSetup.cs）が読む。先頭が次のどれか:
 #   STEP: 手順の見出し   INFO: 補足   WARN: 注意   DONE: 完了   FAIL: 失敗（終了コード 1）
@@ -9,12 +9,12 @@
 #   2. 使い捨ての証明書を作り、WinUSB のカタログ（両方の版）と UIAccess 版の常駐アプリ（UIAccess 版のみ）に署名する。
 #      署名が済んだらすぐ秘密鍵を消す。信頼されるのは、この導入で署名したファイルだけになる
 #   3. UIAccess 版のみ: その証明書（公開鍵だけ）を、この PC の「信頼されたルート」に登録する
-#   4. WinUSB を Magic Trackpad の MI_01 に当てる（pnputil）。以前の MTP のドライバーパッケージは取り除く
-#   5. C:\Program Files\MTP に常駐アプリ・設定画面・インストーラーをコピーし、「アプリ」の一覧に登録する
-#   6. -LockScreenService のとき: サービス MtpSwitch（ロック中・ログオン前だけ標準の HID に戻す）を登録して開始する。
+#   4. WinUSB を Magic Trackpad の MI_01 に当てる（pnputil）。以前の MAGITRA のドライバーパッケージは取り除く
+#   5. C:\Program Files\MAGITRA に常駐アプリ・設定画面・インストーラーをコピーし、「アプリ」の一覧に登録する
+#   6. -LockScreenService のとき: サービス MagitraSwitch（ロック中・ログオン前だけ標準の HID に戻す）を登録して開始する。
 #      付けないときは、以前に登録したサービスを削除する
 #   7. 普段のユーザーと同じアカウントで動いていれば、ログオン時の起動の登録先を直し、常駐アプリを起動する
-# 取り除き（-Action Uninstall）: 上の逆。ユーザーの設定（HKCU\Software\MTP\Agent）は残す
+# 取り除き（-Action Uninstall）: 上の逆。ユーザーの設定（HKCU\Software\MAGITRA\Agent）は残す
 param(
     [Parameter(Mandatory = $true)][ValidateSet('Install', 'Uninstall')][string]$Action,
     [ValidateSet('UIAccess', 'Standard')][string]$Mode = 'UIAccess',
@@ -28,13 +28,13 @@ param(
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
-$InstallDir = Join-Path $env:ProgramFiles 'MTP'
-$StateKey = 'HKLM:\SOFTWARE\MTP\Installer'
-$UninstallKey = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\MTP'
-$CertSubject = 'CN=MTP Local Signing'
-$LegacyCertSubject = 'CN=MTP Test Signing'   # 手作業の手順（docs\MANUAL-INSTALL.md）で作った証明書
+$InstallDir = Join-Path $env:ProgramFiles 'MAGITRA'
+$StateKey = 'HKLM:\SOFTWARE\MAGITRA\Installer'
+$UninstallKey = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\MAGITRA'
+$CertSubject = 'CN=MAGITRA Local Signing'
+$LegacyCertSubject = 'CN=MAGITRA Test Signing'   # 手作業の手順（docs\MANUAL-INSTALL.md）で作った証明書
 $DriverInfName = 'mtpusb.inf'
-$ServiceName = 'MtpSwitch'
+$ServiceName = 'MagitraSwitch'
 $Version = '0.2.0'
 
 function Step($m) { Write-Output "STEP: $m" }
@@ -60,7 +60,7 @@ function Stop-MtpApps {
     if ($svc -and $svc.Status -ne 'Stopped') {
         Stop-Service $ServiceName -Force
         $svc.WaitForStatus('Stopped', [TimeSpan]::FromSeconds(30))
-        Info 'サービス MtpSwitch を止めました'
+        Info 'サービス MagitraSwitch を止めました'
     }
     for ($i = 0; $i -lt 50; $i++) {
         if (-not (Get-Process mtpagent, mtpsettings, mtplauncher -ErrorAction SilentlyContinue)) { return }
@@ -82,7 +82,7 @@ function Remove-MtpService {
     }
     & sc.exe delete $ServiceName | Out-Null
     for ($i = 0; $i -lt 50 -and (Get-Service $ServiceName -ErrorAction SilentlyContinue); $i++) { Start-Sleep -Milliseconds 100 }
-    Info 'サービス MtpSwitch を削除しました'
+    Info 'サービス MagitraSwitch を削除しました'
 }
 
 # ロック中・ログオン前だけ標準の HID に戻すサービスを登録して開始する（既にあれば登録し直す）
@@ -95,7 +95,7 @@ function Install-MtpService {
     # 落ちたら自動で再起動する
     & sc.exe failure $ServiceName reset= 86400 actions= restart/5000/restart/5000/restart/60000 | Out-Null
     Start-Service $ServiceName
-    Info 'サービス MtpSwitch を登録して開始しました'
+    Info 'サービス MagitraSwitch を登録して開始しました'
 }
 
 # 普段のユーザー（エクスプローラーを動かしているアカウント）と、このスクリプトのアカウントが同じか
@@ -179,7 +179,7 @@ function Install-Mtp {
                 }
                 Info "署名しました: $f"
             }
-            $cerFile = Join-Path $stage 'MtpLocalSigning.cer'
+            $cerFile = Join-Path $stage 'MagitraLocalSigning.cer'
             Export-Certificate -Cert $cert -FilePath $cerFile | Out-Null
         }
         finally {
@@ -254,11 +254,11 @@ function Install-Mtp {
             $run = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
             if ($AutoStart) {
                 # 常駐アプリのメニュー「ログオン時に起動」と同じ値（あとからメニューで外せる）
-                Set-ItemProperty $run -Name 'MTP Agent' -Value ('"' + $agentPath + '" /autostart')
+                Set-ItemProperty $run -Name 'MAGITRA' -Value ('"' + $agentPath + '" /autostart')
                 Info 'ログオン時に常駐アプリを起動するよう登録しました'
             }
-            elseif ((Get-ItemProperty $run -ErrorAction SilentlyContinue).'MTP Agent') {
-                Remove-ItemProperty $run -Name 'MTP Agent'
+            elseif ((Get-ItemProperty $run -ErrorAction SilentlyContinue).'MAGITRA') {
+                Remove-ItemProperty $run -Name 'MAGITRA'
                 Info 'ログオン時の起動の登録を外しました'
             }
             if ($Launch) {
@@ -299,8 +299,8 @@ function Uninstall-Mtp {
     Step 'ログオン時の起動の登録を外しています'
     if (Test-SameUserAsDesktop) {
         $run = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
-        $v = (Get-ItemProperty $run -ErrorAction SilentlyContinue).'MTP Agent'
-        if ($v) { Remove-ItemProperty $run -Name 'MTP Agent'; Info '外しました' }
+        $v = (Get-ItemProperty $run -ErrorAction SilentlyContinue).'MAGITRA'
+        if ($v) { Remove-ItemProperty $run -Name 'MAGITRA'; Info '外しました' }
     }
     else {
         Warn '普段とは別の管理者アカウントで動いているため、ログオン時の起動の登録は外していません（トレイのメニューで外せます）'
@@ -312,7 +312,7 @@ function Uninstall-Mtp {
         if (Test-Path $p) { Remove-Item $p -Force }
     }
     Remove-Item $UninstallKey -Recurse -Force -ErrorAction SilentlyContinue
-    Remove-Item 'HKLM:\SOFTWARE\MTP' -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item 'HKLM:\SOFTWARE\MAGITRA' -Recurse -Force -ErrorAction SilentlyContinue
     # mtpsetup.exe は動いている自分自身のことがあるので、終了後に消す
     $setup = Join-Path $InstallDir 'mtpsetup.exe'
     if (Test-Path $setup) {

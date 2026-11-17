@@ -1,5 +1,5 @@
 /*
- * mtp_settings.h - 常駐アプリの設定（HKCU\Software\MTP\Agent の DWORD 値）
+ * mtp_settings.h - 常駐アプリの設定（HKCU\Software\MAGITRA\Agent の DWORD 値）
  *
  * 設定画面（settings/MtpSettings.cs）と同じ名前・範囲を使う。名前や意味を変えるときは両方を直すこと。
  *
@@ -39,7 +39,7 @@
 extern "C" {
 #endif
 
-#define MTP_SETTINGS_KEY L"Software\\MTP\\Agent"
+#define MTP_SETTINGS_KEY L"Software\\MAGITRA\\Agent"
 
 /* 設定画面から常駐アプリへ送る登録メッセージ（RegisterWindowMessageW） */
 #define MTP_MSG_SETTINGS_CHANGED L"MTP_SETTINGS_CHANGED"  /* 設定を読み直す */

@@ -1,6 +1,6 @@
 @echo off
 rem Build build\mtpsetup.exe: rebuilds everything it embeds, then packs the files into one executable.
-rem Exit the running MTP Agent first if it was started from build\agent (its exe cannot be overwritten while running).
+rem Exit the running MAGITRA agent first if it was started from build\agent (its exe cannot be overwritten while running).
 setlocal
 set ROOT=%~dp0..
 set B=%ROOT%\build

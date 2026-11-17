@@ -1,6 +1,6 @@
-// MtpSettings.cs - MTP の設定画面（WPF, .NET Framework 4.8 / C# 5。Windows 標準の csc でビルドする）
+// MtpSettings.cs - MAGITRA の設定画面（WPF, .NET Framework 4.8 / C# 5。Windows 標準の csc でビルドする）
 //
-// - 設定は HKCU\Software\MTP\Agent の DWORD 値。名前・範囲・既定値は agent/mtp_settings.h と一致させること
+// - 設定は HKCU\Software\MAGITRA\Agent の DWORD 値。名前・範囲・既定値は agent/mtp_settings.h と一致させること
 // - 変えた瞬間に保存し、常駐アプリ（mtpagent.exe の見えないウィンドウ）へ MTP_SETTINGS_CHANGED を送る
 // - 振動の「試す」は常駐アプリに MTP_HAPTIC_TEST を送って鳴らしてもらう（上限は常駐アプリ側の core が必ず丸める）
 // - 割り当てられる操作の番号は agent/mtp_actions.h の MTP_ACTION と一致させること
@@ -23,9 +23,9 @@ namespace Mtp
     // ---- 設定の保存（agent/mtp_settings.h と同じ名前・範囲・既定値） ----
     static class Store
     {
-        const string KeyPath = @"Software\MTP\Agent";
+        const string KeyPath = @"Software\MAGITRA\Agent";
         const string RunKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
-        const string RunValue = "MTP Agent";
+        const string RunValue = "MAGITRA";
 
         public static readonly Dictionary<string, int> Defaults = new Dictionary<string, int>
         {
@@ -72,7 +72,7 @@ namespace Mtp
         }
 
         // 常駐アプリと同じく、mtpagent.exe のパスを引用符で囲み、/autostart を付けて登録する（同じフォルダーにある前提）。
-        // /autostart で起動した常駐アプリは、すでに起動していれば黙って終わる（MtpSwitch サービスもログオン直後に起動するため）
+        // /autostart で起動した常駐アプリは、すでに起動していれば黙って終わる（MagitraSwitch サービスもログオン直後に起動するため）
         static string RunCommand()
         {
             return "\"" + Agent.ExePath + "\" /autostart";
@@ -84,10 +84,10 @@ namespace Mtp
             return "\"" + Agent.ExePath + "\"";
         }
 
-        // ロック中・ログオン前の切り替えサービス（MtpSwitch）をインストーラーで入れたか
+        // ロック中・ログオン前の切り替えサービス（MagitraSwitch）をインストーラーで入れたか
         public static bool IsLockScreenServiceInstalled()
         {
-            using (RegistryKey key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\MTP\Installer"))
+            using (RegistryKey key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\MAGITRA\Installer"))
             {
                 if (key == null) return false;
                 object v = key.GetValue("LockScreenService");

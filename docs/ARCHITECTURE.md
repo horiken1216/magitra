@@ -11,9 +11,9 @@ Magic Trackpad（USB）
  └─ MI_00/03 は標準の HID のまま    │
                                     ├──▶ mtplauncher.exe（ランチャー、隠れたまま常駐）
  mtpsettings.exe（設定画面）────────┤      登録メッセージ MTP_LAUNCHER で表示
-   HKCU\Software\MTP\Agent に保存し、MTP_SETTINGS_CHANGED で知らせる
+   HKCU\Software\MAGITRA\Agent に保存し、MTP_SETTINGS_CHANGED で知らせる
                                     │
- mtpswitchsvc.exe（サービス MtpSwitch、システム権限）
+ mtpswitchsvc.exe（サービス MagitraSwitch、システム権限）
    ロック・ログオフ・起動時は MI_01 を標準の HidUsb に、ログオン・解除後は WinUSB に切り替える。
    ログオンを見つけたら、そのユーザーのトークンで mtpagent.exe を起動する
 ```
@@ -46,7 +46,7 @@ Magic Trackpad（USB）
 | プロセス | 権限 | やりとり |
 |---|---|---|
 | `mtpagent.exe` | ユーザー（UIAccess 版は uiAccess 付き） | 見えないウィンドウ（クラス `MtpAgentTrayWindow`、題名 `MTP Agent`）で、`MTP_SETTINGS_CHANGED`（設定の読み直し）・`MTP_HAPTIC_TEST`（振動の試し打ち）を受ける |
-| `mtpsettings.exe` | ユーザー | 設定を `HKCU\Software\MTP\Agent` に書き、常駐アプリに知らせる |
+| `mtpsettings.exe` | ユーザー | 設定を `HKCU\Software\MAGITRA\Agent` に書き、常駐アプリに知らせる |
 | `mtplauncher.exe` | ユーザー | 常駐アプリが起動時に隠れたまま起動する。題名 `MTP Launcher` のウィンドウで `MTP_LAUNCHER`（1 表示・2 隠す・3 終了）を受ける。アプリの起動はエクスプローラーの `IShellDispatch2.ShellExecute` に頼む（UIAccess を引き継がせないため） |
 | `mtpswitchsvc.exe` | システム | 1 秒ごとにコンソールのセッションを見て、ドライバーを切り替える。ログオンを見つけたら `WTSQueryUserToken` → `CreateProcessAsUser` で常駐アプリを起動する |
 | `mtpsetup.exe` | 管理者 | 中身を埋め込んだインストーラー。処理本体は `installer/setup-core.ps1` |

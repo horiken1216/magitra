@@ -16,7 +16,7 @@
  *     --no-gestures    3・4 本指のスワイプを使わない
  *     --defaults       保存された設定（設定画面で変えた値）を使わず、既定値で動かす（試験の再現用）
  *
- * 起動時に保存された設定（HKCU\Software\MTP\Agent、mtp_settings.h）を読み、上のオプションで上書きする。
+ * 起動時に保存された設定（HKCU\Software\MAGITRA\Agent、mtp_settings.h）を読み、上のオプションで上書きする。
  * Force Touch が成立すると、Actuator で振動させてから割り当てた操作（既定は中クリック）を送る。
  * --dry-run でも振動は鳴らす（Windows への入力ではないので、手応えだけ確かめられる）。中クリックは送らない。
  */

@@ -1,6 +1,6 @@
 // LauncherItems.cs - ランチャーに並べるもの（登録・アイコン・起動）。mtplauncher.exe と mtpsettings.exe の両方に入れる
 //
-// 保存先: HKCU\Software\MTP\Agent の LauncherItems（REG_MULTI_SZ）。1 行が 1 つで「名前<TAB>対象<TAB>引数」。
+// 保存先: HKCU\Software\MAGITRA\Agent の LauncherItems（REG_MULTI_SZ）。1 行が 1 つで「名前<TAB>対象<TAB>引数」。
 // 対象はファイル（exe・ショートカットなど）・フォルダー・URL。%APPDATA% などの環境変数を使ってよい。
 // LauncherBrowser（DWORD、既定 1）が 1 なら、登録したものとは別に、既定のブラウザーを先頭に出す（保存はしない。毎回調べる）。
 using System;
@@ -40,7 +40,7 @@ namespace Mtp
 
     static class LauncherStore
     {
-        const string KeyPath = @"Software\MTP\Agent";
+        const string KeyPath = @"Software\MAGITRA\Agent";
         const string ItemsValue = "LauncherItems";
         public const string BrowserValue = "LauncherBrowser";
 

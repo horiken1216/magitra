@@ -1,7 +1,7 @@
 # check_uiaccess.ps1 - Show whether each running mtpagent process has UIAccess (read-only; changes nothing)
 #
 # Expected after tools\manual-install\install.ps1:
-#   path = C:\Program Files\MTP\mtpagent.exe, uiAccess = True, elevated = False
+#   path = C:\Program Files\MAGITRA\mtpagent.exe, uiAccess = True, elevated = False
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;

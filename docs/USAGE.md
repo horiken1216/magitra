@@ -1,6 +1,6 @@
 # 使い方
 
-導入は [INSTALL.md](INSTALL.md)。設定は `HKCU\Software\MTP\Agent` にユーザーごとに保存される（名前・範囲・既定値は `agent/mtp_settings.h`）。
+導入は [INSTALL.md](INSTALL.md)。設定は `HKCU\Software\MAGITRA\Agent` にユーザーごとに保存される（名前・範囲・既定値は `agent/mtp_settings.h`）。
 
 ## タスクトレイ
 

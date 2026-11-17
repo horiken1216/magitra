@@ -1,5 +1,5 @@
 /*
- * mtp_switch.h - Magic Trackpad の MI_01 のドライバーを、Windows 標準の HID と WinUSB（MTP）の間で切り替える
+ * mtp_switch.h - Magic Trackpad の MI_01 のドライバーを、Windows 標準の HID と WinUSB（MAGITRA）の間で切り替える
  *
  * 試験道具（tools/mtpswitch）とサービス（service/mtpswitchsvc.c）が使う。管理者権限（または SYSTEM）が必要。
  * 実機（2026-11-16）: 機器を誰も開いていなければ、どちらの向きも約 8 秒。
@@ -19,7 +19,7 @@ extern "C" {
 typedef enum MTP_DRIVER_MODE {
     MTP_MODE_UNKNOWN = 0,
     MTP_MODE_HID = 1,     /* Windows 標準の HidUsb（ログオン画面・ロック画面でも普通のマウスとして動く） */
-    MTP_MODE_WINUSB = 2   /* WinUSB（MTP の常駐アプリがフル機能で使う） */
+    MTP_MODE_WINUSB = 2   /* WinUSB（MAGITRA の常駐アプリがフル機能で使う） */
 } MTP_DRIVER_MODE;
 
 typedef void (*MTP_SWITCH_LOG)(const wchar_t *message);
