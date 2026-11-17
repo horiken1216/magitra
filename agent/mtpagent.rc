@@ -1,0 +1,9 @@
+// mtpagent.rc - 常駐アプリのアイコン（元は assets/brand。作り直しは tools/mkbrand/build.cmd）
+#include "mtp_resource.h"
+
+// 番号がいちばん小さいアイコンが exe のアイコンになる
+IDI_APP             ICON "../assets/brand/magitra.ico"
+IDI_TRAY_LIGHT      ICON "../assets/brand/tray-light.ico"
+IDI_TRAY_DARK       ICON "../assets/brand/tray-dark.ico"
+IDI_TRAY_LIGHT_IDLE ICON "../assets/brand/tray-light-idle.ico"
+IDI_TRAY_DARK_IDLE  ICON "../assets/brand/tray-dark-idle.ico"

@@ -217,7 +217,7 @@ namespace Mtp
 
         public SettingsWindow()
         {
-            Title = "MTP 設定";
+            Title = "MAGITRA 設定";
             Width = 900;
             Height = 640;
             MinWidth = 720;
@@ -238,14 +238,18 @@ namespace Mtp
             // 左の分類
             Border side = new Border { Background = CardBrush, BorderBrush = Divider, BorderThickness = new Thickness(0, 0, 1, 0), Width = 210 };
             StackPanel sideStack = new StackPanel();
-            sideStack.Children.Add(new TextBlock
+            ImageSource logo = Program.LoadLogotype();
+            if (logo != null)
             {
-                Text = "Magic Trackpad",
-                FontSize = 18,
-                FontWeight = FontWeights.SemiBold,
-                Margin = new Thickness(20, 22, 20, 4)
-            });
-            sideStack.Children.Add(new TextBlock { Text = "MTP 設定", Foreground = SubText, Margin = new Thickness(20, 0, 20, 18) });
+                Image logoImage = new Image { Source = logo, Width = 150, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(22, 24, 20, 8) };
+                RenderOptions.SetBitmapScalingMode(logoImage, BitmapScalingMode.HighQuality);
+                sideStack.Children.Add(logoImage);
+            }
+            else
+            {
+                sideStack.Children.Add(new TextBlock { Text = "MAGITRA", FontSize = 18, FontWeight = FontWeights.SemiBold, Margin = new Thickness(20, 22, 20, 4) });
+            }
+            sideStack.Children.Add(new TextBlock { Text = "Magic Trackpad の設定", Foreground = SubText, Margin = new Thickness(20, 0, 20, 18) });
             nav.BorderThickness = new Thickness(0);
             nav.Background = Brushes.Transparent;
             foreach (string name in pages.Keys)
@@ -573,7 +577,7 @@ namespace Mtp
             {
                 if (!Agent.Start())
                 {
-                    MessageBox.Show(this, "mtpagent.exe が見つかりません。mtpsettings.exe と同じフォルダーに置いてください。", "MTP 設定");
+                    MessageBox.Show(this, "mtpagent.exe が見つかりません。mtpsettings.exe と同じフォルダーに置いてください。", "MAGITRA 設定");
                 }
             };
             row.Children.Add(agentStatus);
@@ -606,7 +610,7 @@ namespace Mtp
             resetAll.Click += delegate
             {
                 if (MessageBox.Show(this, "ポインター・クリック・振動・ジェスチャーの設定をすべて既定に戻します。よろしいですか？",
-                        "MTP 設定", MessageBoxButton.OKCancel, MessageBoxImage.Question) == MessageBoxResult.OK)
+                        "MAGITRA 設定", MessageBoxButton.OKCancel, MessageBoxImage.Question) == MessageBoxResult.OK)
                 {
                     Store.ResetAll();
                     footer.Text = "すべての設定を既定に戻しました。";
@@ -676,9 +680,32 @@ namespace Mtp
         [DllImport("user32.dll")]
         static extern bool ShowWindow(IntPtr hwnd, int cmd);
 
+        // exe に埋め込んだ MAGITRA のロゴタイプ（assets\brand\logotype.png）。読めなければ null
+        public static ImageSource LoadLogotype()
+        {
+            try
+            {
+                using (Stream s = System.Reflection.Assembly.GetExecutingAssembly().GetManifestResourceStream("logotype.png"))
+                {
+                    if (s == null) return null;
+                    System.Windows.Media.Imaging.BitmapImage b = new System.Windows.Media.Imaging.BitmapImage();
+                    b.BeginInit();
+                    b.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+                    b.StreamSource = s;
+                    b.EndInit();
+                    b.Freeze();
+                    return b;
+                }
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
         static void BringExistingToFront()
         {
-            IntPtr h = FindWindowW(null, "MTP 設定");
+            IntPtr h = FindWindowW(null, "MAGITRA 設定");
             if (h != IntPtr.Zero)
             {
                 ShowWindow(h, 9 /* SW_RESTORE */);

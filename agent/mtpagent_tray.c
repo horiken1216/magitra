@@ -29,9 +29,12 @@
 #include "mtp_haptic_out.h"
 #include "mtp_input.h"
 #include "mtp_momentum.h"
+#include "mtp_resource.h"
 #include "mtp_settings.h"
 
-#define APP_NAME            L"MTP Agent"
+#define APP_NAME            L"MAGITRA"
+/* 見えないウィンドウの題名。インストーラーと設定画面がこの名前で探すので、アプリ名を変えても変えない */
+#define WINDOW_TITLE        L"MTP Agent"
 #define WINDOW_CLASS        MTP_AGENT_WINDOW_CLASS
 #define MUTEX_NAME          L"Local\\MtpAgentSingleInstance"
 #define AUTOSTART_ARG       L"/autostart"
@@ -454,6 +457,32 @@ static const wchar_t *StateText(void)
     }
 }
 
+/* タスクバーが明るい表示か（設定 → 個人用設定 → 色 の「既定の Windows モード」）。読めなければ暗いとみなす */
+static int TaskbarIsLight(void)
+{
+    DWORD value = 0, size = sizeof(value);
+    if (RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+            L"SystemUsesLightTheme", RRF_RT_REG_DWORD, NULL, &value, &size) != ERROR_SUCCESS) {
+        return 0;
+    }
+    return value != 0;
+}
+
+/* トラックパッドを使っているときは濃い虎、使っていないとき（未接続・一時停止・ロック中）は薄い虎 */
+static HICON TrayIconFor(void)
+{
+    static HICON cache[4];
+    static const WORD ids[4] = { IDI_TRAY_DARK, IDI_TRAY_LIGHT, IDI_TRAY_DARK_IDLE, IDI_TRAY_LIGHT_IDLE };
+    int idle = InterlockedCompareExchange(&g_paused, 0, 0) ||
+        (LINK_STATE)InterlockedCompareExchange(&g_state, 0, 0) != LINK_CONNECTED;
+    int index = (idle ? 2 : 0) + (TaskbarIsLight() ? 1 : 0);
+    if (cache[index] == NULL) {
+        cache[index] = (HICON)LoadImageW(GetModuleHandleW(NULL), MAKEINTRESOURCEW(ids[index]), IMAGE_ICON,
+            GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), LR_DEFAULTCOLOR);
+    }
+    return cache[index] != NULL ? cache[index] : LoadIconW(NULL, (LPCWSTR)IDI_APPLICATION);
+}
+
 static void UpdateTray(DWORD message)
 {
     NOTIFYICONDATAW nid;
@@ -463,8 +492,8 @@ static void UpdateTray(DWORD message)
     nid.uID = 1;
     nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
     nid.uCallbackMessage = WM_TRAY;
-    nid.hIcon = LoadIconW(NULL, (LPCWSTR)IDI_APPLICATION);
-    swprintf_s(nid.szTip, ARRAYSIZE(nid.szTip), L"MTP: %s", StateText());
+    nid.hIcon = TrayIconFor();
+    swprintf_s(nid.szTip, ARRAYSIZE(nid.szTip), APP_NAME L": %s", StateText());
     Shell_NotifyIconW(message, &nid);
 }
 
@@ -632,6 +661,11 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
     case WM_LINK_STATE:
         UpdateTray(NIM_MODIFY);
         return 0;
+    case WM_SETTINGCHANGE:
+        if (lParam != 0 && wcscmp((const wchar_t *)lParam, L"ImmersiveColorSet") == 0) {
+            UpdateTray(NIM_MODIFY); /* 明るい表示・暗い表示が切り替わった */
+        }
+        return DefWindowProcW(hwnd, msg, wParam, lParam);
     case WM_WTSSESSION_CHANGE:
         OnSessionChange(wParam);
         return 0;
@@ -669,7 +703,7 @@ int WINAPI wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev, _In_ PWSTR
             if (mutex) CloseHandle(mutex);
             return 0; /* 自動起動が重なっただけ。黙って終わる */
         }
-        MessageBoxW(NULL, L"MTP Agent はすでに起動しています。タスクトレイのアイコンから操作してください。", APP_NAME,
+        MessageBoxW(NULL, APP_NAME L" はすでに起動しています。タスクトレイのアイコンから操作してください。", APP_NAME,
             MB_ICONINFORMATION | MB_OK);
         if (mutex) CloseHandle(mutex);
         return 0;
@@ -696,7 +730,7 @@ int WINAPI wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev, _In_ PWSTR
         return 1;
     }
     /* 見えないウィンドウ（トレイの通知とメニュー、設定画面からの知らせの受け口） */
-    g_hwnd = CreateWindowExW(0, WINDOW_CLASS, APP_NAME, 0, 0, 0, 0, 0, NULL, NULL, instance, NULL);
+    g_hwnd = CreateWindowExW(0, WINDOW_CLASS, WINDOW_TITLE, 0, 0, 0, 0, 0, NULL, NULL, instance, NULL);
     if (g_hwnd == NULL || g_stopEvent == NULL) {
         return 1;
     }

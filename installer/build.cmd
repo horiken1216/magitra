@@ -16,6 +16,7 @@ set FW=%WINDIR%\Microsoft.NET\Framework64\v4.0.30319
 set WPF=%FW%\WPF
 "%FW%\csc.exe" /nologo /codepage:65001 /target:winexe /optimize+ /warnaserror+ ^
   /win32manifest:"%~dp0mtpsetup.manifest" /out:"%B%\mtpsetup.exe" ^
+  /win32icon:"%ROOT%\assets\brand\magitra.ico" /resource:"%ROOT%\assets\brand\logotype.png",logotype.png ^
   /r:"%WPF%\PresentationFramework.dll" /r:"%WPF%\PresentationCore.dll" /r:"%WPF%\WindowsBase.dll" ^
   /r:"%FW%\System.Xaml.dll" /r:"%FW%\System.dll" /r:"%FW%\System.Xml.dll" ^
   /resource:"%~dp0setup-core.ps1",setup-core.ps1 ^

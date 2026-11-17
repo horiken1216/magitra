@@ -34,14 +34,17 @@ set COMMON="%~dp0mtp_gesture.c" "%~dp0mtp_momentum.c" "%~dp0mtp_device.c" "%~dp0
 if not exist "%OUT%\cli" mkdir "%OUT%\cli"
 if not exist "%OUT%\tray" mkdir "%OUT%\tray"
 
+rem Icons (assets\brand, made by tools\mkbrand\build.cmd). /c65001: the .rc file is UTF-8
+rc /nologo /c65001 /fo"%OUT%\mtpagent.res" "%~dp0mtpagent.rc" || exit /b 1
+
 rem Console version (diagnostics / tests)
 cl %CFLAGS% "%~dp0mtpagent_cli.c" %COMMON% /Fo"%OUT%\cli\\" /Fe"%OUT%\mtpagent-cli.exe" ^
-  /link winusb.lib cfgmgr32.lib user32.lib hid.lib advapi32.lib || exit /b 1
+  /link "%OUT%\mtpagent.res" winusb.lib cfgmgr32.lib user32.lib hid.lib advapi32.lib || exit /b 1
 echo Built: %OUT%\mtpagent-cli.exe
 
 rem Tray version (everyday use, no console window)
 cl %CFLAGS% /D UNICODE /D _UNICODE "%~dp0mtpagent_tray.c" %COMMON% /Fo"%OUT%\tray\\" /Fe"%OUT%\mtpagent.exe" ^
-  /link /SUBSYSTEM:WINDOWS winusb.lib cfgmgr32.lib user32.lib hid.lib shell32.lib advapi32.lib wtsapi32.lib || exit /b 1
+  /link /SUBSYSTEM:WINDOWS "%OUT%\mtpagent.res" winusb.lib cfgmgr32.lib user32.lib hid.lib shell32.lib advapi32.lib wtsapi32.lib || exit /b 1
 echo Built: %OUT%\mtpagent.exe
 
 rem Tray version for installation (uiAccess=true): can send input to elevated windows.
@@ -49,6 +52,6 @@ rem Windows starts a uiAccess program only if it is signed by a trusted certific
 rem location such as Program Files, so this one cannot run from the build folder. Use install\install.ps1.
 if not exist "%OUT%\install" mkdir "%OUT%\install"
 link /nologo /SUBSYSTEM:WINDOWS /MANIFEST:EMBED /MANIFESTUAC:"level='asInvoker' uiAccess='true'" ^
-  /OUT:"%OUT%\install\mtpagent.exe" "%OUT%\tray\*.obj" ^
+  /OUT:"%OUT%\install\mtpagent.exe" "%OUT%\tray\*.obj" "%OUT%\mtpagent.res" ^
   winusb.lib cfgmgr32.lib user32.lib hid.lib shell32.lib advapi32.lib wtsapi32.lib || exit /b 1
 echo Built: %OUT%\install\mtpagent.exe (uiAccess, unsigned)

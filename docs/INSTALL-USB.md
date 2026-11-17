@@ -7,6 +7,13 @@ USB 接続の Magic Trackpad のインターフェイス 1（MI_01）に、Windo
 **入れている間、USB 接続のトラックパッドは Windows のマウスとして動かない。**
 常駐アプリ（手順 6 の `mtpagent.exe`）が、ポインター・クリック・スクロールなどの入力を作る。
 
+## アプリ名
+
+画面に出る名前は **MAGITRA**。トレイ・設定画面・インストーラー・「アプリ」の一覧・サービスの表示名・デバイスマネージャーの表示がこの名前になる。
+ロゴとアイコンは `assets\brand`（元画像は `tiger.webp`・`logotype.webp`、作り直しは `tools\mkbrand\build.cmd`）。
+導入先（`C:\Program Files\MTP`）・レジストリ（`HKCU\Software\MTP\Agent` など）・exe 名・サービス名（MtpSwitch）は、
+導入済みの環境と設定を引き継ぐため MTP のまま。
+
 ## インストーラーで導入する（おすすめ）
 
 `build\mtpsetup.exe` を実行すると、この文書の手順 1〜7（証明書・署名・WinUSB・コピー）をまとめて行う。
@@ -112,11 +119,11 @@ certutil -addstore TrustedPublisher build\MtpTest.cer
 pnputil /add-driver build\drivers\MtpUsb\MtpUsb.inf /install
 ```
 
-デバイスマネージャーの「ユニバーサル シリアル バス デバイス」に **Magic Trackpad (MTP WinUSB)** が出れば成功。
+デバイスマネージャーの「ユニバーサル シリアル バス デバイス」に **Magic Trackpad (MAGITRA WinUSB)** が出れば成功。
 
 Windows 標準のドライバーが選ばれたままの場合は、手動で切り替える。
 デバイスマネージャー →「ヒューマン インターフェイス デバイス」→「USB 入力デバイス」のうち、プロパティの「詳細」→「ハードウェア ID」が
-`USB\VID_05AC&PID_0265&MI_01` のもの → ドライバーの更新 →「コンピューターを参照」→「一覧から選択」→ **Magic Trackpad (MTP WinUSB)**。
+`USB\VID_05AC&PID_0265&MI_01` のもの → ドライバーの更新 →「コンピューターを参照」→「一覧から選択」→ **Magic Trackpad (MAGITRA WinUSB)**。
 
 ## 5. 動作を確認する（管理者権限は不要）
 

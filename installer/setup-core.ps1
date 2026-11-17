@@ -28,7 +28,6 @@ param(
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
-$AppName = 'MTP'
 $InstallDir = Join-Path $env:ProgramFiles 'MTP'
 $StateKey = 'HKLM:\SOFTWARE\MTP\Installer'
 $UninstallKey = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\MTP'
@@ -86,8 +85,8 @@ function Install-MtpService {
     Remove-MtpService
     $bin = '"' + (Join-Path $InstallDir 'mtpswitchsvc.exe') + '"'
     New-Service -Name $ServiceName -BinaryPathName $bin -StartupType Automatic `
-        -DisplayName 'MTP ロック中の標準マウス切り替え' `
-        -Description 'ロック中とログオン前だけ、Magic Trackpad を Windows 標準のマウスとして使えるようにします（MTP）。' | Out-Null
+        -DisplayName 'MAGITRA ロック中の標準マウス切り替え' `
+        -Description 'ロック中とログオン前だけ、Magic Trackpad を Windows 標準のマウスとして使えるようにします（MAGITRA）。' | Out-Null
     # 落ちたら自動で再起動する
     & sc.exe failure $ServiceName reset= 86400 actions= restart/5000/restart/5000/restart/60000 | Out-Null
     Start-Service $ServiceName
@@ -157,7 +156,7 @@ function Install-Mtp {
     Copy-Item (Join-Path $Payload 'mtpusb.cat') (Join-Path $stage 'mtpusb.cat')
 
     try {
-        Step '以前の MTP の証明書を片付けています'
+        Step '以前の MAGITRA の証明書を片付けています'
         Remove-InstallerCertificates
         if ($RemoveLegacyCertificate) { Remove-LegacyCertificates }
 
@@ -236,9 +235,9 @@ function Install-Mtp {
         else { Remove-ItemProperty $StateKey -Name CertThumbprint -ErrorAction SilentlyContinue }
         New-Item -Path $UninstallKey -Force | Out-Null
         $setupPath = Join-Path $InstallDir 'mtpsetup.exe'
-        Set-ItemProperty $UninstallKey -Name DisplayName -Value 'MTP（Magic Trackpad のドライバーとツール）'
+        Set-ItemProperty $UninstallKey -Name DisplayName -Value 'MAGITRA（Magic Trackpad のドライバーとツール）'
         Set-ItemProperty $UninstallKey -Name DisplayVersion -Value $Version
-        Set-ItemProperty $UninstallKey -Name Publisher -Value 'MTP Project'
+        Set-ItemProperty $UninstallKey -Name Publisher -Value 'MAGITRA'
         Set-ItemProperty $UninstallKey -Name InstallLocation -Value $InstallDir
         Set-ItemProperty $UninstallKey -Name DisplayIcon -Value (Join-Path $InstallDir 'mtpagent.exe')
         Set-ItemProperty $UninstallKey -Name UninstallString -Value ('"' + $setupPath + '" /uninstall')

@@ -44,4 +44,4 @@ HKR,,DeviceInterfaceGUIDs,0x10000,"{A3F9C2E4-6B1D-4F58-8E27-5C0D9B41E7A6}"
 
 [Strings]
 ProviderName      = "MTP Project"
-MtpUsb.DeviceDesc = "Magic Trackpad (MTP WinUSB)"
+MtpUsb.DeviceDesc = "Magic Trackpad (MAGITRA WinUSB)"

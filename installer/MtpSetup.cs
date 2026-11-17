@@ -1,4 +1,4 @@
-﻿// MtpSetup.cs - MTP のインストーラー（WPF, .NET Framework 4.8 / C# 5。Windows 標準の csc でビルドする）
+﻿// MtpSetup.cs - MAGITRA のインストーラー（WPF, .NET Framework 4.8 / C# 5。Windows 標準の csc でビルドする）
 //
 // 導入するファイルと処理本体（setup-core.ps1）を埋め込んであり、一時フォルダーに展開して実行する。
 // 画面は「選ぶ → 同意する → 進み具合 → 結果」。"/uninstall" を付けて起動すると、取り除くを選んだ状態で開く。
@@ -39,7 +39,7 @@ namespace Mtp
             installedMode = ReadInstalledMode();
             legacyCertExists = LegacyCertificateExists();
 
-            Title = "MTP セットアップ";
+            Title = "MAGITRA セットアップ";
             Width = 680;
             Height = 720; // 同意画面の同意のチェックまで、スクロールせずに見えるように
             ResizeMode = ResizeMode.CanMinimize;
@@ -115,6 +115,29 @@ namespace Mtp
 
         // ---- 部品 ----
 
+        // exe に埋め込んだ MAGITRA のロゴタイプ（assets\brand\logotype.png）。読めなければ null
+        static ImageSource LoadLogotype()
+        {
+            try
+            {
+                using (Stream s = Assembly.GetExecutingAssembly().GetManifestResourceStream("logotype.png"))
+                {
+                    if (s == null) return null;
+                    System.Windows.Media.Imaging.BitmapImage b = new System.Windows.Media.Imaging.BitmapImage();
+                    b.BeginInit();
+                    b.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+                    b.StreamSource = s;
+                    b.EndInit();
+                    b.Freeze();
+                    return b;
+                }
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
         static TextBlock Heading(string text)
         {
             return new TextBlock { Text = text, FontSize = 22, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 6) };
@@ -162,7 +185,14 @@ namespace Mtp
         void ShowChoosePage()
         {
             StackPanel p = new StackPanel();
-            p.Children.Add(Heading("MTP セットアップ"));
+            ImageSource logo = LoadLogotype();
+            if (logo != null)
+            {
+                Image logoImage = new Image { Source = logo, Width = 160, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 0, 0, 14) };
+                RenderOptions.SetBitmapScalingMode(logoImage, BitmapScalingMode.HighQuality);
+                p.Children.Add(logoImage);
+            }
+            p.Children.Add(Heading(logo != null ? "セットアップ" : "MAGITRA セットアップ"));
             p.Children.Add(Para("Magic Trackpad を Windows で使うための常駐アプリ・設定画面・ドライバー設定を導入します。"
                 + "どちらの版も、トラックパッドに WinUSB ドライバーを当てる点は同じです。違うのは、管理者権限のウィンドウで操作できるかどうかです。"));
             p.Children.Add(new TextBlock
@@ -287,7 +317,7 @@ namespace Mtp
                 Section(list, "どちらの版でも行うこと");
                 Bullet(list, "Magic Trackpad の USB インターフェイス（MI_01）に、Microsoft 署名済みの WinUSB ドライバーを当てます。"
                     + "常駐アプリがトラックパッドの生データを読むために必要です。WinUSB が当たっている間は、常駐アプリが動いていないと USB 接続のトラックパッドは動きません。");
-                Bullet(list, "その場限りの証明書を作り、MTP のファイルに署名します。署名後すぐに秘密鍵を消すので、この証明書で他のものに署名することはできません。");
+                Bullet(list, "その場限りの証明書を作り、MAGITRA のファイルに署名します。署名後すぐに秘密鍵を消すので、この証明書で他のものに署名することはできません。");
                 Bullet(list, @"C:\Program Files\MTP に" + (uiAccess ? " UIAccess 版の" : " 標準版の") + "常駐アプリ・設定画面・インストーラーをコピーし、「アプリ」の一覧に登録します。");
                 if (optAutoStart.IsChecked == true)
                 {
@@ -299,7 +329,7 @@ namespace Mtp
                 }
                 if (optService.IsChecked == true)
                 {
-                    Bullet(list, "サービス「MTP ロック中の標準マウス切り替え」（MtpSwitch）を、システム権限で自動起動するよう登録します。"
+                    Bullet(list, "サービス「MAGITRA ロック中の標準マウス切り替え」（MtpSwitch）を、システム権限で自動起動するよう登録します。"
                         + "ロック中とログオン前はトラックパッドを Windows 標準のドライバーに、ログオンして使っている間は WinUSB に切り替えます。"
                         + "ログオン時の起動を選んでいれば、ログオンした直後にこのサービスが常駐アプリを起動します（Windows の自動起動の順番待ちを避けるため）。");
                 }
