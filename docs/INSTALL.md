@@ -34,7 +34,8 @@ python probe\caps.py
 
 ## インストーラーで導入する
 
-`mtpsetup.exe` を実行する（作り方は [BUILD.md](BUILD.md)）。管理者権限の確認が出る。
+[Releases](https://github.com/horiken1216/magitra/releases/latest) からダウンロードした `mtpsetup.exe`（自分で作る場合は [BUILD.md](BUILD.md)）を実行する。
+正式なコード署名がないので SmartScreen の警告が出る。「詳細情報」→「実行」で進める。管理者権限の確認が出る。
 
 | 選択肢 | 内容 |
 |---|---|

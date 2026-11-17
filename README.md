@@ -37,9 +37,14 @@ USB でつないだトラックパッドから指ごとの位置と圧力を直�
 
 ## 導入
 
-1. [ビルドする](docs/BUILD.md)（リポジトリのルートで `build.cmd`。Visual Studio 2022 Build Tools と WDK が必要）
-2. できた `build\mtpsetup.exe` を実行し、UIAccess 版か標準版を選ぶ（[導入と取り除き](docs/INSTALL.md)）
+1. [Releases](https://github.com/horiken1216/magitra/releases/latest) から `mtpsetup.exe` をダウンロードする
+2. `mtpsetup.exe` を実行し、UIAccess 版か標準版を選ぶ（[導入と取り除き](docs/INSTALL.md)）
 3. タスクトレイに虎のアイコンが出たら使える（[使い方](docs/USAGE.md)）
+
+`mtpsetup.exe` には正式なコード署名がないため、実行すると SmartScreen が「Windows によって PC が保護されました」と警告します。
+「詳細情報」→「実行」で進めてください。正しいファイルかどうかは、Releases に載せた SHA-256 と
+`Get-FileHash mtpsetup.exe` の結果を比べて確かめられます。自分でビルドする場合は [BUILD.md](docs/BUILD.md) を参照してください
+（リポジトリのルートで `build.cmd`。Visual Studio 2022 Build Tools と WDK が必要）。
 
 インストーラーは、USB の Magic Trackpad の 1 つのインターフェイス（MI_01）に、Microsoft 署名済みの WinUSB ドライバーを当てます。
 署名のために、導入ごとに作る証明書をこの PC で信頼させます（UIAccess 版のみ。秘密鍵は署名後すぐに消します）。
