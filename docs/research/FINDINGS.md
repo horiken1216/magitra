@@ -185,6 +185,8 @@ USB Composite Device（`USB\VID_05AC&PID_0265`）の下に 4 インターフェ�
 - `try_mt.py` — 有効化レポートの送信と入力記録（BT）
 - `usb_listen.py` — USB の全コレクションの入力記録
 - `usb_try_enable.py` — USB でのマルチタッチ切り替えレポート送信
+- `bt_sdp.py` — Bluetooth の SDP キャッシュの HID 記述子を読み、書き換えた記録を作る・書く・戻す
+- `bt_mt_test.py`・`bt_mt_probe2.py` — 書き換えた後の 0x31 の届き方（長さ別の件数、GET_REPORT）を調べる
 
 ## 慣性スクロールとピンチ（2026-11-17）
 
@@ -205,3 +207,27 @@ USB Composite Device（`USB\VID_05AC&PID_0265`）の下に 4 インターフェ�
 - 「払った指を離さずに滑らせて、離した向きのものを起動する」円形の方式も作ったが、実機でうまく動かなかったため取り除いた
 - 起動はエクスプローラーの IShellDispatch2.ShellExecute に頼む（UIAccess 版の常駐アプリの子として起動すると権限を引き継ぐおそれがあるため）
 - 実機: 一覧の表示・クリックと Enter での起動・既定のブラウザーのオンオフ・対象の変更とも問題なし（ユーザー確認）
+
+## Bluetooth: SDP キャッシュの HID 記述子を書き換える方法（2026-11-18）
+
+カーネルドライバーを使わずに Bluetooth でマルチタッチを取れないかを確かめた。結論は「切り替えと受け取りはできるが、
+指 1 本ぶんの長さのレポートしか届かないので、ジェスチャーには使えない」。道具は `probe/bt_sdp.py`・`bt_mt_test.py`・`bt_mt_probe2.py`。
+
+- Windows はペアリングした機器の SDP の記録を `HKLM\SYSTEM\CurrentControlSet\Services\BTHPORT\Parameters\Devices\<アドレス>\CachedServices`
+  に REG_BINARY で保存している（SDP の data element の並びそのもの。手元の 22 件で、読んで組み立て直すと元と一致した）。
+  Administrators が書ける。Magic Trackpad の HID 記述子（属性 0x0206、135 バイト）は、Windows が見せているコレクション
+  （マウスの 0x02・0x55、ベンダー定義の 0x90）とまったく同じだった
+- 記述子にベンダー定義のコレクション（UsagePage 0xFF31。入力 0x31、フィーチャー 0xF1、出力・フィーチャー 0xF2）を足して書き込み、
+  - Bluetooth をつなぎ直すと、Windows が機器から SDP を取り直してキャッシュを上書きし、効かなかった
+  - HID 機器だけを再起動する（`pnputil /restart-device BTHENUM\{00001124-...}`）と、書き換えた記述子が使われ、Col03（0xFF31）が現れた。
+    hidbth は機器の起動のたびに、キャッシュから記述子を読んでいる
+- Col03 にフィーチャー `F1 02 01` を送れた（以前は記述子にないため ERROR_INVALID_FUNCTION）。送るとポインターが止まり、
+  マルチタッチのモードに切り替わる。モードは HID 機器を再起動しても続くが、トラックパッドが休止してつなぎ直すと戻る（送り直せば再び切り替わる）
+- 入力 0x31 の届き方は、宣言した長さとの関係で決まる（hidclass が長さの合わないレポートを捨てる）
+  - 111 バイト（指 12 本ぶん）で宣言: 1 件も届かない
+  - 12 バイト（見出し 3 + 指 1 本 9）で宣言: 1 本指の間は毎秒 90 件届く。2 本指の間はほぼ届かない（切り詰めて通すこともしない）
+  - レポートの中身は、2〜3 バイト目が 1 件ごとに 0x58 増える時刻、その後に指 1 本 9 バイト（USB の指のデータと同じ形に見える）
+- GET_REPORT（HidD_GetInputReport、0x31）は、宣言どおりの長さでも ERROR_INVALID_PARAMETER（1 回約 22 ms。機器が断っている）
+- レポート ID 1 つにつき宣言できる長さは 1 つで、トラックパッドは指の本数で長さを変える（3 + 9×本数）。
+  そのため、この方法では複数の指を同時に受け取れない。Bluetooth でジェスチャーまで扱うには、カーネルドライバーか、
+  専用の USB Bluetooth ドングルを WinUSB で直接扱うユーザーモードの Bluetooth スタック（Google Bumble など）が要る
