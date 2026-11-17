@@ -12,6 +12,7 @@ using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Input;
 using System.Windows.Markup;
 using System.Windows.Media;
 using System.Windows.Threading;
@@ -33,8 +34,9 @@ namespace Mtp
             { "ForceThreshold", 200 }, { "ForceAction", 6 },
             { "HapticStrength", 0x30 }, { "HapticSharpness", 0x00 }, { "HapticDepth", 0x40 },
             { "Swipe3Left", 1 }, { "Swipe3Right", 2 }, { "Swipe3Up", 3 }, { "Swipe3Down", 4 },
-            { "Swipe4Left", 5 }, { "Swipe4Right", 5 }, { "Swipe4Up", 0 }, { "Swipe4Down", 0 },
+            { "Swipe4Left", 5 }, { "Swipe4Right", 5 }, { "Swipe4Up", 12 }, { "Swipe4Down", 0 },
             { "Inertia", 1 }, { "InertiaGlide", 50 }, { "Pinch", 1 }, { "TwoFingerDoubleTap", 11 }, { "DoubleTapInterval", 400 },
+            { "LauncherBrowser", 1 },
         };
 
         public static int Get(string name)
@@ -174,6 +176,38 @@ namespace Mtp
         }
     }
 
+    // ---- ランチャー（mtplauncher.exe）を開く（「開いてみる」ボタン） ----
+    static class LauncherApp
+    {
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        static extern IntPtr FindWindowW(string cls, string name);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        static extern uint RegisterWindowMessageW(string name);
+        [DllImport("user32.dll")]
+        static extern bool PostMessageW(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam);
+        [DllImport("user32.dll")]
+        static extern bool AllowSetForegroundWindow(int pid);
+
+        const string WindowTitle = "MTP Launcher"; // launcher/MtpLauncher.cs と agent/mtp_launcher.h と同じ
+        const int CmdShow = 1;
+
+        // 動いていれば表示の知らせを送り、動いていなければ表示する指示を付けて起動する
+        public static bool Show()
+        {
+            AllowSetForegroundWindow(-1 /* ASFW_ANY */); // 前面のこちらから、ランチャーが前面に出るのを許す
+            IntPtr h = FindWindowW(null, WindowTitle);
+            if (h != IntPtr.Zero)
+            {
+                return PostMessageW(h, RegisterWindowMessageW("MTP_LAUNCHER"), new IntPtr(CmdShow), IntPtr.Zero);
+            }
+            string exe = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "mtplauncher.exe");
+            if (!File.Exists(exe)) return false;
+            Process p = Process.Start(exe, "/show");
+            if (p != null) p.Dispose();
+            return true;
+        }
+    }
+
     // ---- 割り当てられる操作（agent/mtp_actions.h の MTP_ACTION と同じ番号） ----
     class ActionItem
     {
@@ -195,6 +229,7 @@ namespace Mtp
             new ActionItem { Id = 9, Name = "再生・一時停止" },
             new ActionItem { Id = 10, Name = "検索" },
             new ActionItem { Id = 11, Name = "拡大率を元に戻す（Ctrl+0）" },
+            new ActionItem { Id = 12, Name = "ランチャー" },
         };
     }
 
@@ -215,7 +250,8 @@ namespace Mtp
         TextBlock agentStatus;
         Button agentStart;
 
-        public SettingsWindow()
+        // startPage: 最初に開くページの名前（左の分類と同じ。null なら先頭）
+        public SettingsWindow(string startPage)
         {
             Title = "MAGITRA 設定";
             Width = 900;
@@ -231,6 +267,7 @@ namespace Mtp
             pages["クリック"] = ClickPage;
             pages["振動"] = HapticPage;
             pages["ジェスチャー"] = GesturePage;
+            pages["ランチャー"] = LauncherPage;
             pages["全般"] = GeneralPage;
 
             DockPanel root = new DockPanel();
@@ -275,6 +312,10 @@ namespace Mtp
 
             Content = root;
             nav.SelectedIndex = 0;
+            for (int i = 0; i < nav.Items.Count; i++)
+            {
+                if ((string)((ListBoxItem)nav.Items[i]).Content == startPage) nav.SelectedIndex = i;
+            }
 
             statusTimer.Interval = TimeSpan.FromSeconds(1);
             statusTimer.Tick += delegate { UpdateAgentStatus(); };
@@ -558,10 +599,355 @@ namespace Mtp
                 }
                 p.Children.Add(Card(fingers + " 本指",
                     fingers == 3 ? "既定: 左右で仮想デスクトップ、上でタスクビュー、下でデスクトップの表示（Mac に近い割り当て）"
-                                 : "既定: 左右で直前のアプリに切り替え。上下は今後のランチャー用に空けてあります。",
+                                 : "既定: 左右で直前のアプリに切り替え、上でランチャー。下は空けてあります。",
                     g));
             }
             return p;
+        }
+
+        // ---- ランチャー ----
+
+        UIElement LauncherPage()
+        {
+            StackPanel p = new StackPanel();
+            p.Children.Add(PageTitle("ランチャー",
+                "4 本指で上（奥）へ払うと、画面の中央に一覧が開きます。クリックするか、文字を打って絞り込み、矢印キーと Enter で起動します。"
+                + "払う向きはジェスチャーのページで変えられます。"));
+
+            // 既定のブラウザー（登録したものとは別に、先頭に出す）
+            StackPanel browser = new StackPanel();
+            LauncherItem found = LauncherStore.DefaultBrowser();
+            browser.Children.Add(Toggle(found != null ? "既定のブラウザー（" + found.Name + "）を先頭に出す" : "既定のブラウザーを先頭に出す", "LauncherBrowser"));
+            browser.Children.Add(Note(found != null
+                ? "登録したものとは別に、いちばん前に出します。Windows の既定のブラウザーを変えると、ここも変わります。"
+                : "既定のブラウザーが見つかりません（Windows の設定 → アプリ → 既定のアプリ で選べます）。", 0));
+            Button tryIt = new Button { Content = "ランチャーを開いてみる", Padding = new Thickness(16, 5, 16, 5), Margin = new Thickness(0, 14, 0, 0), HorizontalAlignment = HorizontalAlignment.Left };
+            tryIt.Click += delegate
+            {
+                if (!LauncherApp.Show())
+                {
+                    footer.Text = "mtplauncher.exe が見つかりません。mtpsettings.exe と同じフォルダーに置いてください。";
+                }
+            };
+            browser.Children.Add(tryIt);
+            p.Children.Add(Card("既定のブラウザー", null, browser));
+
+            p.Children.Add(Card("並べるもの", "既定のブラウザーの後に、上から順に並びます。名前・対象・引数は下の欄で変えられます。", LauncherEditor()));
+            return p;
+        }
+
+        static TextBlock Note(string text, double indent)
+        {
+            return new TextBlock { Text = text, Foreground = SubText, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(indent, 4, 0, 0) };
+        }
+
+        UIElement LauncherEditor()
+        {
+            List<LauncherItem> items = LauncherStore.Load();
+            StackPanel editor = new StackPanel();
+
+            ListBox list = new ListBox { Height = 250, Margin = new Thickness(0, 4, 0, 10), BorderBrush = Divider };
+            ScrollViewer.SetHorizontalScrollBarVisibility(list, ScrollBarVisibility.Disabled);
+            TextBlock empty = new TextBlock
+            {
+                Text = "まだ何も登録されていません。下のボタンで追加してください。",
+                Foreground = SubText,
+                Margin = new Thickness(12, 12, 12, 0),
+                IsHitTestVisible = false
+            };
+            Grid listArea = new Grid();
+            listArea.Children.Add(list);
+            listArea.Children.Add(empty);
+            editor.Children.Add(listArea);
+
+            // 選んだものの名前・対象・引数
+            Grid detail = new Grid { Margin = new Thickness(0, 4, 0, 0) };
+            detail.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            detail.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            TextBox nameBox = new TextBox { Padding = new Thickness(6, 3, 6, 3), Margin = new Thickness(0, 3, 0, 3) };
+            TextBox targetBox = new TextBox { Padding = new Thickness(6, 3, 6, 3), Margin = new Thickness(0, 3, 0, 3) };
+            Button browse = new Button { Content = "参照…", Padding = new Thickness(10, 2, 10, 2), Margin = new Thickness(8, 3, 0, 3) };
+            DockPanel targetRow = new DockPanel();
+            DockPanel.SetDock(browse, Dock.Right);
+            targetRow.Children.Add(browse);
+            targetRow.Children.Add(targetBox);
+            TextBox argsBox = new TextBox { Padding = new Thickness(6, 3, 6, 3), Margin = new Thickness(0, 3, 0, 3) };
+            TextBlock targetWarn = new TextBlock { Foreground = new SolidColorBrush(Color.FromRgb(0xC5, 0x22, 0x1F)), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 4), Visibility = Visibility.Collapsed };
+            string[] labels = { "名前", "対象", "", "引数" };
+            UIElement[] fields = { nameBox, targetRow, targetWarn, argsBox };
+            for (int r = 0; r < fields.Length; r++)
+            {
+                detail.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                Grid.SetRow(fields[r], r);
+                Grid.SetColumn(fields[r], 1);
+                detail.Children.Add(fields[r]);
+                if (labels[r].Length == 0) continue; // 注意の行には見出しを付けない（隠れているときに行の高さが残らないように）
+                TextBlock l = new TextBlock { Text = labels[r], VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0) };
+                Grid.SetRow(l, r);
+                detail.Children.Add(l);
+            }
+
+            bool loading = false;
+            Action save = delegate { LauncherStore.Save(items); };
+            Action<int> refresh = null;
+            refresh = delegate(int select)
+            {
+                loading = true;
+                list.Items.Clear();
+                foreach (LauncherItem item in items)
+                {
+                    list.Items.Add(new ListBoxItem { Content = LauncherRow(item), Padding = new Thickness(6, 4, 6, 4) });
+                }
+                empty.Visibility = items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+                list.SelectedIndex = Math.Min(select, items.Count - 1);
+                loading = false;
+                ShowDetail(items, list.SelectedIndex, nameBox, targetBox, targetWarn, argsBox, browse, detail);
+            };
+            list.SelectionChanged += delegate
+            {
+                if (!loading) ShowDetail(items, list.SelectedIndex, nameBox, targetBox, targetWarn, argsBox, browse, detail);
+            };
+            targetBox.TextChanged += delegate
+            {
+                int i = list.SelectedIndex;
+                if (loading || detail.Tag != null || i < 0 || i >= items.Count) return;
+                string target = targetBox.Text.Trim();
+                ShowTargetWarning(target, targetWarn);
+                if (target.Length == 0) return; // 空のままでは保存しない（前の対象が残る）
+                string oldTarget = items[i].Target;
+                items[i].Target = target;
+                argsBox.IsEnabled = !items[i].IsUrl;
+                // 名前が前の対象から付けた既定の名前のままなら、新しい対象に合わせる
+                if (items[i].Name == LauncherStore.DefaultName(oldTarget))
+                {
+                    items[i].Name = LauncherStore.DefaultName(target);
+                    detail.Tag = "loading";
+                    nameBox.Text = items[i].Name;
+                    detail.Tag = null;
+                }
+                ((ListBoxItem)list.Items[i]).Content = LauncherRow(items[i]);
+                save();
+            };
+            browse.Click += delegate
+            {
+                int i = list.SelectedIndex;
+                if (i < 0 || i >= items.Count) return;
+                OpenFileDialog dlg = new OpenFileDialog
+                {
+                    Title = "対象のアプリやファイル",
+                    Filter = "アプリとショートカット (*.exe;*.lnk;*.url;*.bat;*.cmd)|*.exe;*.lnk;*.url;*.bat;*.cmd|すべてのファイル (*.*)|*.*",
+                    DereferenceLinks = false
+                };
+                string current = items[i].ExpandedTarget;
+                try
+                {
+                    string dir = items[i].IsUrl ? null : (Directory.Exists(current) ? current : Path.GetDirectoryName(current));
+                    if (!string.IsNullOrEmpty(dir) && Directory.Exists(dir)) dlg.InitialDirectory = dir;
+                }
+                catch (ArgumentException)
+                {
+                    // 対象にパスに使えない文字があるときは、既定の場所から
+                }
+                if (dlg.ShowDialog(this) == true) targetBox.Text = dlg.FileName; // TextChanged で保存する
+            };
+            nameBox.TextChanged += delegate
+            {
+                int i = list.SelectedIndex;
+                if (loading || detail.Tag != null || i < 0 || i >= items.Count) return;
+                items[i].Name = nameBox.Text;
+                ((ListBoxItem)list.Items[i]).Content = LauncherRow(items[i]);
+                save();
+            };
+            argsBox.TextChanged += delegate
+            {
+                int i = list.SelectedIndex;
+                if (loading || detail.Tag != null || i < 0 || i >= items.Count) return;
+                items[i].Args = argsBox.Text;
+                save();
+            };
+
+            // 追加・並べ替え・削除
+            WrapPanel buttons = new WrapPanel { Margin = new Thickness(0, 0, 0, 6) };
+            Func<string, Button> button = delegate(string text)
+            {
+                Button b = new Button { Content = text, Padding = new Thickness(12, 4, 12, 4), Margin = new Thickness(0, 0, 8, 6) };
+                buttons.Children.Add(b);
+                return b;
+            };
+            Action<string> add = delegate(string target)
+            {
+                items.Add(new LauncherItem { Name = LauncherStore.DefaultName(target), Target = target });
+                save();
+                refresh(items.Count - 1);
+            };
+
+            button("アプリやファイルを追加…").Click += delegate
+            {
+                OpenFileDialog dlg = new OpenFileDialog
+                {
+                    Title = "ランチャーに追加するアプリやファイル",
+                    Filter = "アプリとショートカット (*.exe;*.lnk;*.url;*.bat;*.cmd)|*.exe;*.lnk;*.url;*.bat;*.cmd|すべてのファイル (*.*)|*.*",
+                    Multiselect = true,
+                    DereferenceLinks = false, // ショートカットはショートカットのまま登録する（名前とアイコンがスタートメニューと同じになる）
+                    InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.CommonPrograms)
+                };
+                if (dlg.ShowDialog(this) == true)
+                {
+                    foreach (string f in dlg.FileNames) items.Add(new LauncherItem { Name = LauncherStore.DefaultName(f), Target = f });
+                    save();
+                    refresh(items.Count - 1);
+                }
+            };
+            button("フォルダーを追加…").Click += delegate
+            {
+                using (System.Windows.Forms.FolderBrowserDialog dlg = new System.Windows.Forms.FolderBrowserDialog())
+                {
+                    dlg.Description = "ランチャーに追加するフォルダー";
+                    dlg.ShowNewFolderButton = false;
+                    if (dlg.ShowDialog() == System.Windows.Forms.DialogResult.OK && dlg.SelectedPath.Length > 0) add(dlg.SelectedPath);
+                }
+            };
+
+            // URL は下に入力欄を出して追加する
+            StackPanel urlRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 8), Visibility = Visibility.Collapsed };
+            TextBox urlBox = new TextBox { Width = 360, Padding = new Thickness(6, 3, 6, 3) };
+            Button urlAdd = new Button { Content = "追加", Padding = new Thickness(12, 3, 12, 3), Margin = new Thickness(8, 0, 0, 0) };
+            TextBlock urlNote = new TextBlock { Foreground = SubText, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 0, 0) };
+            urlRow.Children.Add(urlBox);
+            urlRow.Children.Add(urlAdd);
+            urlRow.Children.Add(urlNote);
+            Action addUrl = delegate
+            {
+                string u = urlBox.Text.Trim();
+                if (!LauncherStore.LooksLikeUrl(u) && u.Contains(".") && !u.Contains(" ")) u = "https://" + u;
+                if (!LauncherStore.LooksLikeUrl(u))
+                {
+                    urlNote.Text = "https:// で始まる URL を入れてください";
+                    return;
+                }
+                urlBox.Text = "";
+                urlNote.Text = "";
+                urlRow.Visibility = Visibility.Collapsed;
+                add(u);
+            };
+            urlAdd.Click += delegate { addUrl(); };
+            urlBox.KeyDown += delegate(object s, KeyEventArgs e) { if (e.Key == Key.Enter) { addUrl(); e.Handled = true; } };
+            button("URL を追加…").Click += delegate
+            {
+                urlRow.Visibility = Visibility.Visible;
+                urlBox.Focus();
+            };
+
+            button("↑ 上へ").Click += delegate
+            {
+                int i = list.SelectedIndex;
+                if (i <= 0) return;
+                LauncherItem t = items[i]; items[i] = items[i - 1]; items[i - 1] = t;
+                save();
+                refresh(i - 1);
+            };
+            button("↓ 下へ").Click += delegate
+            {
+                int i = list.SelectedIndex;
+                if (i < 0 || i >= items.Count - 1) return;
+                LauncherItem t = items[i]; items[i] = items[i + 1]; items[i + 1] = t;
+                save();
+                refresh(i + 1);
+            };
+            button("削除").Click += delegate
+            {
+                int i = list.SelectedIndex;
+                if (i < 0) return;
+                items.RemoveAt(i);
+                save();
+                refresh(i);
+            };
+
+            editor.Children.Add(buttons);
+            editor.Children.Add(urlRow);
+            editor.Children.Add(detail);
+            refresh(0);
+            return editor;
+        }
+
+        static void ShowDetail(List<LauncherItem> items, int index, TextBox nameBox, TextBox targetBox, TextBlock targetWarn,
+            TextBox argsBox, Button browse, Grid detail)
+        {
+            detail.Tag = "loading"; // 欄を埋めている間は保存しない
+            bool has = index >= 0 && index < items.Count;
+            nameBox.Text = has ? items[index].Name : "";
+            targetBox.Text = has ? items[index].Target : "";
+            argsBox.Text = has ? items[index].Args : "";
+            nameBox.IsEnabled = has;
+            targetBox.IsEnabled = has;
+            browse.IsEnabled = has;
+            argsBox.IsEnabled = has && !items[index].IsUrl; // URL に引数はない
+            ShowTargetWarning(has ? items[index].Target : null, targetWarn);
+            detail.Tag = null;
+        }
+
+        // 対象の欄の下に出す注意（なければ隠す）
+        static void ShowTargetWarning(string target, TextBlock warn)
+        {
+            string text = null;
+            if (target == null)
+            {
+                text = null;
+            }
+            else if (target.Trim().Length == 0)
+            {
+                text = "対象が空です。ファイル・フォルダーのパスか URL を入れてください（空のままでは保存しません）。";
+            }
+            else if (!LauncherStore.LooksLikeUrl(target))
+            {
+                string expanded = Environment.ExpandEnvironmentVariables(target.Trim());
+                try
+                {
+                    if (Path.IsPathRooted(expanded) && !File.Exists(expanded) && !Directory.Exists(expanded))
+                    {
+                        text = "この場所にファイルもフォルダーも見つかりません。このままだと起動できません。";
+                    }
+                }
+                catch (ArgumentException)
+                {
+                    text = "パスに使えない文字が入っています。";
+                }
+            }
+            warn.Text = text ?? "";
+            warn.Visibility = text == null ? Visibility.Collapsed : Visibility.Visible;
+        }
+
+        static UIElement LauncherRow(LauncherItem item)
+        {
+            StackPanel row = new StackPanel { Orientation = Orientation.Horizontal };
+            ImageSource icon = ShellIcons.Get(item, 32);
+            FrameworkElement iconView;
+            if (icon != null)
+            {
+                Image img = new Image { Source = icon, Width = 24, Height = 24 };
+                RenderOptions.SetBitmapScalingMode(img, BitmapScalingMode.HighQuality);
+                iconView = img;
+            }
+            else
+            {
+                iconView = new TextBlock
+                {
+                    Text = item.IsUrl ? "\uE774" : "\uE7C3",
+                    FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"),
+                    FontSize = 20,
+                    Width = 24,
+                    TextAlignment = TextAlignment.Center,
+                    Foreground = Accent
+                };
+            }
+            iconView.VerticalAlignment = VerticalAlignment.Center;
+            iconView.Margin = new Thickness(0, 0, 10, 0);
+            row.Children.Add(iconView);
+            StackPanel text = new StackPanel();
+            text.Children.Add(new TextBlock { Text = item.Name.Length > 0 ? item.Name : "（名前なし）", FontWeight = FontWeights.SemiBold });
+            text.Children.Add(new TextBlock { Text = item.Target, Foreground = SubText, FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = 520 });
+            row.Children.Add(text);
+            return row;
         }
 
         UIElement GeneralPage()
@@ -656,8 +1042,14 @@ namespace Mtp
             "</Style>";
 
         [STAThread]
-        static void Main()
+        static void Main(string[] args)
         {
+            // /launcher: ランチャーのページを開く（ランチャーの「設定を開く」から）
+            string startPage = null;
+            foreach (string a in args)
+            {
+                if (string.Equals(a, "/launcher", StringComparison.OrdinalIgnoreCase)) startPage = "ランチャー";
+            }
             // 二重起動しない（すでに開いていれば前面に出すだけ）
             bool created;
             using (System.Threading.Mutex mutex = new System.Threading.Mutex(true, @"Local\MtpSettingsSingleInstance", out created))
@@ -669,7 +1061,7 @@ namespace Mtp
                 }
                 Application app = new Application();
                 app.Resources["Switch"] = XamlReader.Parse(SwitchStyle);
-                app.Run(new SettingsWindow());
+                app.Run(new SettingsWindow(startPage));
             }
         }
 

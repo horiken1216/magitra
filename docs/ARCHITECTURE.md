@@ -96,7 +96,10 @@ USB でも標準 HID スタックの上からは切り替えレポートを送�
     - 設定: agent/mtp_settings（HKCU\Software\MTP\Agent）。設定画面 settings/MtpSettings.cs（WPF、Windows 標準の csc でビルド）で
       変えると、常駐アプリが登録メッセージ MTP_SETTINGS_CHANGED を受けてその場で読み直す。振動の試し打ちは MTP_HAPTIC_TEST
     - UIAccess 版（install\install.ps1 で C:\Program Files\MTP に導入）: 管理者権限のウィンドウにも入力が届く（実機確認済み）
-    - まだないもの: 慣性スクロール、ランチャー（4 本指の上下を空けてある）、ログオン画面・ロック画面での動作
-      （その間だけ標準 HID に戻すサービスを検討中）
+    - 慣性スクロール・ピンチ・2 本指ダブルタップ（agent/mtp_momentum.c、agent/mtp_gesture.c）
+    - ランチャー: launcher/MtpLauncher.cs（mtplauncher.exe、WPF）。常駐アプリが隠れたまま起動しておき、
+      登録メッセージ MTP_LAUNCHER で表示を知らせる（agent/mtp_launcher.c）。
+      「払った指を滑らせて離すと選ぶ」方式も試したが、実機でうまく動かなかったので取り除いた（2026-11-17）
+    - ログオン画面・ロック画面: その間だけ標準 HID に戻すサービス MtpSwitch（service/）
 - 導入手順: `docs/INSTALL-SPIKE.md`（BT スパイク）、`docs/INSTALL-USB.md`（方式 B）
 - 製品版ツール層の言語は未決（候補: C#/.NET、Python 継続、Go）

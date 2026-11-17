@@ -17,6 +17,6 @@ if not exist "%FW%\csc.exe" (
   /out:"%OUT%\mtpsettings.exe" ^
   /win32icon:"%ROOT%\assets\brand\magitra.ico" /resource:"%ROOT%\assets\brand\logotype.png",logotype.png ^
   /r:"%WPF%\PresentationFramework.dll" /r:"%WPF%\PresentationCore.dll" /r:"%WPF%\WindowsBase.dll" ^
-  /r:"%FW%\System.Xaml.dll" /r:"%FW%\System.dll" /r:"%FW%\System.Xml.dll" ^
-  "%~dp0MtpSettings.cs" || exit /b 1
+  /r:"%FW%\System.Xaml.dll" /r:"%FW%\System.dll" /r:"%FW%\System.Xml.dll" /r:"%FW%\System.Windows.Forms.dll" ^
+  "%~dp0MtpSettings.cs" "%ROOT%\launcher\LauncherItems.cs" || exit /b 1
 echo Built: %OUT%\mtpsettings.exe

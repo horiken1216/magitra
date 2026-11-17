@@ -22,6 +22,9 @@
  * | Pinch             | 0/1       | 1    | ピンチで拡大縮小（Ctrl + ホイール）                          |
  * | TwoFingerDoubleTap| MTP_ACTION| 11   | 2 本指のダブルタップの割り当て（既定は拡大率を戻す）         |
  * | DoubleTapInterval | 200..800  | 400  | ダブルタップの間隔（ミリ秒。1 回目を離してから 2 回目まで）  |
+ *
+ * ランチャーの設定（LauncherItems: 並べるもの、LauncherBrowser: 既定のブラウザーを先頭に出すか）は
+ * launcher/LauncherItems.cs が読み書きする。常駐アプリは読まない。
  */
 #ifndef MTP_SETTINGS_H
 #define MTP_SETTINGS_H

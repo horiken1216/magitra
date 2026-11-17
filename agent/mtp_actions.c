@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "mtp_input.h"
+#include "mtp_launcher.h"
 
 const char *MtpActionName(MTP_ACTION action)
 {
@@ -21,6 +22,7 @@ const char *MtpActionName(MTP_ACTION action)
     case MTP_ACTION_PLAY_PAUSE: return "再生・一時停止";
     case MTP_ACTION_SEARCH: return "検索";
     case MTP_ACTION_ZOOM_RESET: return "拡大率を元に戻す（Ctrl+0）";
+    case MTP_ACTION_LAUNCHER: return "ランチャー";
     default: return "なし";
     }
 }
@@ -97,6 +99,8 @@ BOOL MtpActionRun(MTP_ACTION action)
         static const WORD k[] = { VK_LCONTROL, '0' };
         return SendChord(k, 2);
     }
+    case MTP_ACTION_LAUNCHER:
+        return MtpLauncherShow();
     case MTP_ACTION_MIDDLE_CLICK:
         return MtpInputForceAction();
     default:

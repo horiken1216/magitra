@@ -318,7 +318,7 @@ namespace Mtp
                 Bullet(list, "Magic Trackpad の USB インターフェイス（MI_01）に、Microsoft 署名済みの WinUSB ドライバーを当てます。"
                     + "常駐アプリがトラックパッドの生データを読むために必要です。WinUSB が当たっている間は、常駐アプリが動いていないと USB 接続のトラックパッドは動きません。");
                 Bullet(list, "その場限りの証明書を作り、MAGITRA のファイルに署名します。署名後すぐに秘密鍵を消すので、この証明書で他のものに署名することはできません。");
-                Bullet(list, @"C:\Program Files\MTP に" + (uiAccess ? " UIAccess 版の" : " 標準版の") + "常駐アプリ・設定画面・インストーラーをコピーし、「アプリ」の一覧に登録します。");
+                Bullet(list, @"C:\Program Files\MTP に" + (uiAccess ? " UIAccess 版の" : " 標準版の") + "常駐アプリ・設定画面・ランチャー・インストーラーをコピーし、「アプリ」の一覧に登録します。");
                 if (optAutoStart.IsChecked == true)
                 {
                     Bullet(list, "ログオンしたときに常駐アプリが起動するよう、普段のユーザーに登録します。");
@@ -504,7 +504,7 @@ namespace Mtp
             string dir = Path.Combine(Path.GetTempPath(), "mtpsetup-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(dir);
             Assembly asm = Assembly.GetExecutingAssembly();
-            foreach (string name in new string[] { "setup-core.ps1", "mtpagent-standard.exe", "mtpagent-uiaccess.exe", "mtpsettings.exe", "MtpUsb.inf", "mtpusb.cat", "mtpswitchsvc.exe", "mtpswitch.exe" })
+            foreach (string name in new string[] { "setup-core.ps1", "mtpagent-standard.exe", "mtpagent-uiaccess.exe", "mtpsettings.exe", "mtplauncher.exe", "MtpUsb.inf", "mtpusb.cat", "mtpswitchsvc.exe", "mtpswitch.exe" })
             {
                 using (Stream src = asm.GetManifestResourceStream(name))
                 {

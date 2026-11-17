@@ -28,6 +28,7 @@
 #include "mtp_gesture.h"
 #include "mtp_haptic_out.h"
 #include "mtp_input.h"
+#include "mtp_launcher.h"
 #include "mtp_momentum.h"
 #include "mtp_resource.h"
 #include "mtp_settings.h"
@@ -680,6 +681,7 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
             WaitForSingleObject(g_worker, 5000);
         }
         MtpHapticOutClose(&g_uiHaptic);
+        MtpLauncherQuit();
         RemoveTray();
         PostQuitMessage(0);
         return 0;
@@ -735,6 +737,7 @@ int WINAPI wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev, _In_ PWSTR
         return 1;
     }
     UpdateTray(NIM_ADD);
+    MtpLauncherStart(); /* ランチャーを隠れたまま起動しておく（呼び出したときにすぐ出るように） */
     /* ロックされたらトラックパッドを手放す（MtpSwitch サービスが標準の HID に切り替えられるように） */
     WTSRegisterSessionNotification(g_hwnd, NOTIFY_FOR_THIS_SESSION);
     InterlockedExchange(&g_released, IsOwnSessionLocked());

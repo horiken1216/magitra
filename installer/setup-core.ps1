@@ -46,7 +46,8 @@ Add-Type -Namespace MtpSetup -Name Native -MemberDefinition @'
 [DllImport("user32.dll")] public static extern bool PostMessageW(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam);
 '@
 
-# 常駐アプリにトレイのメニューの「終了」と同じ指示（WM_COMMAND / IDM_EXIT=104）を送り、設定画面は閉じる
+# 常駐アプリにトレイのメニューの「終了」と同じ指示（WM_COMMAND / IDM_EXIT=104）を送り、設定画面は閉じる。
+# ランチャー（mtplauncher.exe）は常駐アプリが終わるときに一緒に終わる
 function Stop-MtpApps {
     $hwnd = [MtpSetup.Native]::FindWindowW('MtpAgentTrayWindow', 'MTP Agent')
     if ($hwnd -ne [IntPtr]::Zero) {
@@ -62,7 +63,11 @@ function Stop-MtpApps {
         Info 'サービス MtpSwitch を止めました'
     }
     for ($i = 0; $i -lt 50; $i++) {
-        if (-not (Get-Process mtpagent, mtpsettings -ErrorAction SilentlyContinue)) { return }
+        if (-not (Get-Process mtpagent, mtpsettings, mtplauncher -ErrorAction SilentlyContinue)) { return }
+        # 常駐アプリが終わってもランチャーが残っていれば（常駐アプリが知らせる前に落ちていたなど）、止める
+        if ($i -ge 30 -and -not (Get-Process mtpagent -ErrorAction SilentlyContinue)) {
+            Get-Process mtplauncher -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+        }
         Start-Sleep -Milliseconds 100
     }
     throw '常駐アプリか設定画面が終了しませんでした。手動で終了してから、もう一度実行してください。'
@@ -140,7 +145,7 @@ function Remove-LegacyCertificates {
 
 function Install-Mtp {
     $agentSource = if ($Mode -eq 'UIAccess') { 'mtpagent-uiaccess.exe' } else { 'mtpagent-standard.exe' }
-    foreach ($f in @($agentSource, 'mtpsettings.exe', 'MtpUsb.inf', 'mtpusb.cat', 'mtpswitchsvc.exe', 'mtpswitch.exe')) {
+    foreach ($f in @($agentSource, 'mtpsettings.exe', 'mtplauncher.exe', 'MtpUsb.inf', 'mtpusb.cat', 'mtpswitchsvc.exe', 'mtpswitch.exe')) {
         if (-not (Test-Path (Join-Path $Payload $f))) { throw "導入するファイルが見つかりません: $f" }
     }
 
@@ -211,6 +216,7 @@ function Install-Mtp {
         New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
         Copy-Item (Join-Path $stage 'mtpagent.exe') (Join-Path $InstallDir 'mtpagent.exe') -Force
         Copy-Item (Join-Path $stage 'mtpsettings.exe') (Join-Path $InstallDir 'mtpsettings.exe') -Force
+        Copy-Item (Join-Path $Payload 'mtplauncher.exe') (Join-Path $InstallDir 'mtplauncher.exe') -Force
         # ロック中の切り替えサービスと、困ったときに手動で切り替える道具（mtpswitch hid / winusb）
         Copy-Item (Join-Path $Payload 'mtpswitchsvc.exe') (Join-Path $InstallDir 'mtpswitchsvc.exe') -Force
         Copy-Item (Join-Path $Payload 'mtpswitch.exe') (Join-Path $InstallDir 'mtpswitch.exe') -Force
@@ -301,7 +307,7 @@ function Uninstall-Mtp {
     }
 
     Step "$InstallDir を削除しています"
-    foreach ($name in 'mtpagent.exe', 'mtpsettings.exe', 'mtpswitchsvc.exe', 'mtpswitch.exe') {
+    foreach ($name in 'mtpagent.exe', 'mtpsettings.exe', 'mtplauncher.exe', 'mtpswitchsvc.exe', 'mtpswitch.exe') {
         $p = Join-Path $InstallDir $name
         if (Test-Path $p) { Remove-Item $p -Force }
     }

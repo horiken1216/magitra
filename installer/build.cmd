@@ -7,6 +7,7 @@ set B=%ROOT%\build
 
 call "%ROOT%\agent\build.cmd" || exit /b 1
 call "%ROOT%\settings\build.cmd" || exit /b 1
+call "%ROOT%\launcher\build.cmd" || exit /b 1
 call "%ROOT%\service\build.cmd" || exit /b 1
 call "%ROOT%\tools\mtpswitch\build.cmd" || exit /b 1
 rem Fresh, unsigned catalog. The installer signs it on the target PC with a one-time certificate.
@@ -23,6 +24,7 @@ set WPF=%FW%\WPF
   /resource:"%B%\agent\mtpagent.exe",mtpagent-standard.exe ^
   /resource:"%B%\agent\install\mtpagent.exe",mtpagent-uiaccess.exe ^
   /resource:"%B%\agent\mtpsettings.exe",mtpsettings.exe ^
+  /resource:"%B%\agent\mtplauncher.exe",mtplauncher.exe ^
   /resource:"%B%\drivers\MtpUsb\MtpUsb.inf",MtpUsb.inf ^
   /resource:"%B%\drivers\MtpUsb\mtpusb.cat",mtpusb.cat ^
   /resource:"%B%\service\mtpswitchsvc.exe",mtpswitchsvc.exe ^

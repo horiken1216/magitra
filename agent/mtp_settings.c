@@ -34,10 +34,10 @@ void MtpSettingsDefaults(MTP_SETTINGS *s)
     s->swipe[0][MTP_DIR_RIGHT] = MTP_ACTION_DESKTOP_PREV;
     s->swipe[0][MTP_DIR_UP] = MTP_ACTION_TASK_VIEW;
     s->swipe[0][MTP_DIR_DOWN] = MTP_ACTION_SHOW_DESKTOP;
-    /* 4 本指: 左右でアプリの切り替え。上下はランチャー用に空けておく */
+    /* 4 本指: 左右でアプリの切り替え、上でランチャー。下は空けておく */
     s->swipe[1][MTP_DIR_LEFT] = MTP_ACTION_APP_SWITCH;
     s->swipe[1][MTP_DIR_RIGHT] = MTP_ACTION_APP_SWITCH;
-    s->swipe[1][MTP_DIR_UP] = MTP_ACTION_NONE;
+    s->swipe[1][MTP_DIR_UP] = MTP_ACTION_LAUNCHER;
     s->swipe[1][MTP_DIR_DOWN] = MTP_ACTION_NONE;
     s->inertia_enabled = 1;
     s->inertia_glide = 50;

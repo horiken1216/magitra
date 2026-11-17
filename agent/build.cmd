@@ -22,14 +22,14 @@ rem Inertial scrolling and pinch
 cl %CFLAGS% "%~dp0mtp_gesture.c" "%~dp0mtp_momentum.c" "%~dp0tests\test_inertia.c" /Fo"%OUT%\\" /Fe"%OUT%\test_inertia.exe" || exit /b 1
 "%OUT%\test_inertia.exe" || exit /b 1
 rem Settings unit tests (do not touch the registry)
-cl %CFLAGS% "%~dp0mtp_settings.c" "%~dp0mtp_actions.c" "%~dp0mtp_input.c" "%~dp0mtp_gesture.c" "%~dp0tests\test_settings.c" ^
+cl %CFLAGS% "%~dp0mtp_settings.c" "%~dp0mtp_actions.c" "%~dp0mtp_input.c" "%~dp0mtp_launcher.c" "%~dp0mtp_gesture.c" "%~dp0tests\test_settings.c" ^
   /Fo"%OUT%\\" /Fe"%OUT%\test_settings.exe" /link advapi32.lib user32.lib || exit /b 1
 "%OUT%\test_settings.exe" || exit /b 1
 rem Replays mtpagent-cli --log recordings through the gesture logic
 cl %CFLAGS% "%~dp0mtp_gesture.c" "%~dp0tests\replay_gesture.c" /Fo"%OUT%\\" /Fe"%OUT%\replay_gesture.exe" || exit /b 1
 if /i "%1"=="test" exit /b 0
 
-set COMMON="%~dp0mtp_gesture.c" "%~dp0mtp_momentum.c" "%~dp0mtp_device.c" "%~dp0mtp_input.c" "%~dp0mtp_haptic_out.c" "%~dp0mtp_actions.c" "%~dp0mtp_settings.c" "%ROOT%\core\src\mtp_report.c" "%ROOT%\core\src\mtp_haptic.c"
+set COMMON="%~dp0mtp_gesture.c" "%~dp0mtp_momentum.c" "%~dp0mtp_device.c" "%~dp0mtp_input.c" "%~dp0mtp_haptic_out.c" "%~dp0mtp_actions.c" "%~dp0mtp_launcher.c" "%~dp0mtp_settings.c" "%ROOT%\core\src\mtp_report.c" "%ROOT%\core\src\mtp_haptic.c"
 
 if not exist "%OUT%\cli" mkdir "%OUT%\cli"
 if not exist "%OUT%\tray" mkdir "%OUT%\tray"

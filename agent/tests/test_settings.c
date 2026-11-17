@@ -49,7 +49,7 @@ static void test_defaults_match_previous_behavior(void)
     CHECK(MtpSettingsSwipeAction(&s, 3, MTP_DIR_DOWN) == MTP_ACTION_SHOW_DESKTOP);
     CHECK(MtpSettingsSwipeAction(&s, 4, MTP_DIR_LEFT) == MTP_ACTION_APP_SWITCH);
     CHECK(MtpSettingsSwipeAction(&s, 4, MTP_DIR_RIGHT) == MTP_ACTION_APP_SWITCH);
-    CHECK(MtpSettingsSwipeAction(&s, 4, MTP_DIR_UP) == MTP_ACTION_NONE);
+    CHECK(MtpSettingsSwipeAction(&s, 4, MTP_DIR_UP) == MTP_ACTION_LAUNCHER);
     CHECK(MtpSettingsSwipeAction(&s, 4, MTP_DIR_DOWN) == MTP_ACTION_NONE);
     CHECK(MtpSettingsSwipeAction(&s, 2, MTP_DIR_LEFT) == MTP_ACTION_NONE);
     CHECK(s.force_action == MTP_ACTION_MIDDLE_CLICK);
