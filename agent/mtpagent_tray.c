@@ -71,6 +71,7 @@ static UINT g_msgSettingsChanged;
 static UINT g_msgHapticTest;
 static HANDLE g_stopEvent;
 static HANDLE g_worker;
+static BOOL g_threadsStuck; /* 終了時に、止まらないスレッドが残った */
 static volatile LONG g_paused = 0;
 /*
  * ロック中・切断中は 1。WinUSB のハンドルを閉じて、開き直さない。
@@ -677,8 +678,12 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
         WTSUnRegisterSessionNotification(hwnd);
         SetEvent(g_stopEvent);
         AbortPendingRead(); /* 読み取り中なら中断して、すぐに停止要求を見させる */
-        if (g_worker != NULL) {
-            WaitForSingleObject(g_worker, 5000);
+        if (g_worker != NULL && WaitForSingleObject(g_worker, 5000) != WAIT_OBJECT_0) {
+            /* USB・HID の同期 I/O から戻らない。中断させて、もう少しだけ待つ */
+            CancelSynchronousIo(g_worker);
+            if (WaitForSingleObject(g_worker, 1000) != WAIT_OBJECT_0) {
+                g_threadsStuck = TRUE;
+            }
         }
         MtpHapticOutClose(&g_uiHaptic);
         MtpLauncherQuit();
@@ -754,11 +759,20 @@ int WINAPI wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev, _In_ PWSTR
         DispatchMessageW(&msg);
     }
 
-    if (g_worker) CloseHandle(g_worker);
-    if (g_momThread) {
-        WaitForSingleObject(g_momThread, 1000);
-        CloseHandle(g_momThread);
+    if (g_momThread && WaitForSingleObject(g_momThread, 1000) != WAIT_OBJECT_0) {
+        g_threadsStuck = TRUE;
     }
+    if (g_threadsStuck) {
+        /*
+         * 止まらないスレッドが、このあと破棄するロックやイベントを使うかもしれない。破棄せずにプロセスごと終える
+         * （ExitProcess は残ったスレッドを止めてから後始末する）
+         */
+        ReleaseMutex(mutex);
+        CloseHandle(mutex);
+        ExitProcess(0);
+    }
+    if (g_worker) CloseHandle(g_worker);
+    if (g_momThread) CloseHandle(g_momThread);
     if (g_momWake) CloseHandle(g_momWake);
     DeleteCriticalSection(&g_momLock);
     CloseHandle(g_stopEvent);

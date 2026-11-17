@@ -4,10 +4,14 @@
 // 画面は「選ぶ → 同意する → 進み具合 → 結果」。"/uninstall" を付けて起動すると、取り除くを選んだ状態で開く。
 // 実際の変更はすべて setup-core.ps1 が行う。この画面は選択・同意・進み具合の表示だけを受け持つ。
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Reflection;
+using System.Security.AccessControl;
 using System.Security.Cryptography.X509Certificates;
+using System.Security.Principal;
+using System.Threading;
 using System.Text;
 using System.Windows;
 using System.Windows.Controls;
@@ -86,24 +90,28 @@ namespace Mtp
             }
         }
 
+        // setup-core.ps1 の Remove-LegacyCertificates が取り除くのと同じストアを見る
         static bool LegacyCertificateExists()
         {
-            foreach (StoreLocation loc in new StoreLocation[] { StoreLocation.LocalMachine, StoreLocation.CurrentUser })
+            KeyValuePair<StoreName, StoreLocation>[] stores = new KeyValuePair<StoreName, StoreLocation>[]
             {
-                foreach (StoreName name in new StoreName[] { StoreName.Root, StoreName.My })
+                new KeyValuePair<StoreName, StoreLocation>(StoreName.Root, StoreLocation.LocalMachine),
+                new KeyValuePair<StoreName, StoreLocation>(StoreName.TrustedPublisher, StoreLocation.LocalMachine),
+                new KeyValuePair<StoreName, StoreLocation>(StoreName.My, StoreLocation.CurrentUser)
+            };
+            foreach (KeyValuePair<StoreName, StoreLocation> s in stores)
+            {
+                X509Store store = new X509Store(s.Key, s.Value);
+                try
                 {
-                    X509Store store = new X509Store(name, loc);
-                    try
+                    store.Open(OpenFlags.ReadOnly);
+                    foreach (X509Certificate2 c in store.Certificates)
                     {
-                        store.Open(OpenFlags.ReadOnly);
-                        foreach (X509Certificate2 c in store.Certificates)
-                        {
-                            if (c.Subject == "CN=MAGITRA Test Signing") return true;
-                        }
+                        if (c.Subject == "CN=MAGITRA Test Signing") return true;
                     }
-                    catch (Exception) { }
-                    finally { store.Close(); }
                 }
+                catch (Exception) { }
+                finally { store.Close(); }
             }
             return false;
         }
@@ -450,7 +458,9 @@ namespace Mtp
             if (launch) args.Append(" -Launch");
             if (optAutoStart.IsChecked == true) args.Append(" -AutoStart");
 
-            ProcessStartInfo psi = new ProcessStartInfo("powershell.exe", args.ToString())
+            // PATH やカレントフォルダーにある別の powershell.exe を拾わないよう、システムフォルダーから絶対パスで起動する
+            string powershell = Path.Combine(Environment.SystemDirectory, @"WindowsPowerShell\v1.0\powershell.exe");
+            ProcessStartInfo psi = new ProcessStartInfo(powershell, args.ToString())
             {
                 UseShellExecute = false,
                 CreateNoWindow = true,
@@ -462,9 +472,27 @@ namespace Mtp
             Process proc = new Process { StartInfo = psi, EnableRaisingEvents = true };
             bool failed = false;
             string doneText = null;
+            // 終了と、標準出力・標準エラーの終わり（EOF）の 3 つが揃ってから結果を出す（最後の行を取りこぼさないため）
+            int pending = 3;
+            Action finish = delegate
+            {
+                if (Interlocked.Decrement(ref pending) != 0) return;
+                int code = proc.ExitCode;
+                proc.Dispose();
+                Dispatcher.BeginInvoke(new Action(delegate
+                {
+                    bool ok = code == 0 && !failed;
+                    title.Text = ok ? (action == "Uninstall" ? "取り除きました" : "導入しました") : "うまくいきませんでした";
+                    result.Text = ok ? (doneText ?? "完了しました。")
+                        : "途中で止まりました。上の記録を確認してください。";
+                    result.Foreground = ok ? Ok : Danger;
+                    close.IsEnabled = true;
+                    DeletePayload(payload);
+                }));
+            };
             DataReceivedEventHandler onLine = delegate(object s, DataReceivedEventArgs e)
             {
-                if (e.Data == null) return;
+                if (e.Data == null) { finish(); return; }
                 string line = e.Data;
                 Dispatcher.BeginInvoke(new Action(delegate
                 {
@@ -479,30 +507,50 @@ namespace Mtp
             };
             proc.OutputDataReceived += onLine;
             proc.ErrorDataReceived += onLine;
-            proc.Exited += delegate
+            proc.Exited += delegate { finish(); };
+            try
             {
-                int code = proc.ExitCode;
-                Dispatcher.BeginInvoke(new Action(delegate
-                {
-                    bool ok = code == 0 && !failed;
-                    title.Text = ok ? (action == "Uninstall" ? "取り除きました" : "導入しました") : "うまくいきませんでした";
-                    result.Text = ok ? (doneText ?? "完了しました。")
-                        : "途中で止まりました。上の記録を確認してください。設定はそこまでの状態のままです。";
-                    result.Foreground = ok ? Ok : Danger;
-                    close.IsEnabled = true;
-                    try { Directory.Delete(payload, true); } catch (Exception) { }
-                }));
-            };
-            proc.Start();
-            proc.BeginOutputReadLine();
-            proc.BeginErrorReadLine();
+                proc.Start();
+                proc.BeginOutputReadLine();
+                proc.BeginErrorReadLine();
+            }
+            catch (Exception ex)
+            {
+                // PowerShell を起動できなかった（ポリシーやセキュリティ製品に止められたなど）。何も変えていない
+                proc.Dispose();
+                title.Text = "うまくいきませんでした";
+                result.Text = "PowerShell を起動できませんでした（" + ex.Message + "）。この PC には何も変更していません。";
+                result.Foreground = Danger;
+                close.IsEnabled = true;
+                DeletePayload(payload);
+            }
         }
 
-        // 埋め込んだファイルを一時フォルダーに書き出す
+        static void DeletePayload(string payload)
+        {
+            try { Directory.Delete(payload, true); } catch (Exception) { }
+        }
+
+        /*
+         * 埋め込んだファイルを、管理者と SYSTEM だけが書けるフォルダーに書き出す。
+         * ここから管理者権限の PowerShell を動かし、SYSTEM で動くサービスの exe もコピーするので、普段の権限のプロセスに
+         * 途中で差し替えられてはならない。ユーザーの TEMP は、中のフォルダーの権限を絞っても親から名前を変えて
+         * すり替えられるので使わず、%SystemRoot%\Temp（一般ユーザーは他人のフォルダーを消したり名前を変えたりできない）に作る
+         */
         static string ExtractPayload()
         {
-            string dir = Path.Combine(Path.GetTempPath(), "mtpsetup-" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(dir);
+            string root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Temp");
+            string dir = Path.Combine(root, "mtpsetup-" + Guid.NewGuid().ToString("N"));
+            DirectorySecurity sec = new DirectorySecurity();
+            sec.SetAccessRuleProtection(true, false);
+            InheritanceFlags inherit = InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit;
+            sec.AddAccessRule(new FileSystemAccessRule(new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null),
+                FileSystemRights.FullControl, inherit, PropagationFlags.None, AccessControlType.Allow));
+            sec.AddAccessRule(new FileSystemAccessRule(new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null),
+                FileSystemRights.FullControl, inherit, PropagationFlags.None, AccessControlType.Allow));
+            sec.SetOwner(new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null));
+            if (Directory.Exists(dir)) throw new IOException("展開先がすでにあります: " + dir);
+            Directory.CreateDirectory(dir, sec);
             Assembly asm = Assembly.GetExecutingAssembly();
             foreach (string name in new string[] { "setup-core.ps1", "mtpagent-standard.exe", "mtpagent-uiaccess.exe", "mtpsettings.exe", "mtplauncher.exe", "MtpUsb.inf", "mtpusb.cat", "mtpswitchsvc.exe", "mtpswitch.exe" })
             {

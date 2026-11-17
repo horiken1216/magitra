@@ -9,12 +9,15 @@
 #   2. 使い捨ての証明書を作り、WinUSB のカタログ（両方の版）と UIAccess 版の常駐アプリ（UIAccess 版のみ）に署名する。
 #      署名が済んだらすぐ秘密鍵を消す。信頼されるのは、この導入で署名したファイルだけになる
 #   3. UIAccess 版のみ: その証明書（公開鍵だけ）を、この PC の「信頼されたルート」に登録する
-#   4. WinUSB を Magic Trackpad の MI_01 に当てる（pnputil）。以前の MAGITRA のドライバーパッケージは取り除く
+#   4. WinUSB を Magic Trackpad の MI_01 に当てる（pnputil）
 #   5. C:\Program Files\MAGITRA に常駐アプリ・設定画面・インストーラーをコピーし、「アプリ」の一覧に登録する
 #   6. -LockScreenService のとき: サービス MagitraSwitch（ロック中・ログオン前だけ標準の HID に戻す）を登録して開始する。
 #      付けないときは、以前に登録したサービスを削除する
-#   7. 普段のユーザーと同じアカウントで動いていれば、ログオン時の起動の登録先を直し、常駐アプリを起動する
-# 取り除き（-Action Uninstall）: 上の逆。ユーザーの設定（HKCU\Software\MAGITRA\Agent）は残す
+#   7. 以前の MAGITRA のドライバーパッケージと証明書を片付ける（新しいものが揃うまでは残す）
+#   8. 普段のユーザーと同じアカウントで動いていれば、ログオン時の起動の登録先を直し、常駐アプリを起動する
+#   5 より前に失敗したら、この導入で加えたドライバーと証明書を戻す（以前の状態のままになる）
+# 取り除き（-Action Uninstall）: 上の逆。ユーザーの設定（HKCU\Software\MAGITRA\Agent）は残す。
+#   WinUSB を外せなかったら、そこで止めてファイル・証明書・登録は残す（トラックパッドを使う手段をなくさないため）
 param(
     [Parameter(Mandatory = $true)][ValidateSet('Install', 'Uninstall')][string]$Action,
     [ValidateSet('UIAccess', 'Standard')][string]$Mode = 'UIAccess',
@@ -80,14 +83,49 @@ function Remove-MtpService {
         Stop-Service $ServiceName -Force
         $svc.WaitForStatus('Stopped', [TimeSpan]::FromSeconds(30))
     }
-    & sc.exe delete $ServiceName | Out-Null
+    $out = & sc.exe delete $ServiceName
+    # 1072 = 削除の予約済み（ハンドルが閉じれば消える）
+    if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne 1072) {
+        throw "サービス $ServiceName を削除できませんでした（sc.exe の終了コード $LASTEXITCODE）: $($out -join ' ')"
+    }
     for ($i = 0; $i -lt 50 -and (Get-Service $ServiceName -ErrorAction SilentlyContinue); $i++) { Start-Sleep -Milliseconds 100 }
-    Info 'サービス MagitraSwitch を削除しました'
+    if (Get-Service $ServiceName -ErrorAction SilentlyContinue) {
+        Warn "サービス $ServiceName は削除を予約しました（再起動すると消えます）"
+    }
+    else {
+        Info "サービス $ServiceName を削除しました"
+    }
+}
+
+# サービスの記録のフォルダー（%ProgramData%\MAGITRA）を、管理者と SYSTEM だけが書けるように用意する。
+# %ProgramData% の既定の権限では一般ユーザーも中にファイルを作れるため、SYSTEM が書く記録を差し替えられないよう継承を切る。
+# 先に一般ユーザーが作っていた（所有者が SYSTEM・Administrators でない）か、リンクになっていれば、消して作り直す
+$LogDirSddl = 'D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1200a9;;;BU)'
+function Initialize-LogDirectory {
+    $dir = Join-Path $env:ProgramData 'MAGITRA'
+    $item = Get-Item -LiteralPath $dir -Force -ErrorAction SilentlyContinue
+    if ($item) {
+        $owner = (Get-Acl -LiteralPath $dir).GetOwner([System.Security.Principal.SecurityIdentifier]).Value
+        $isLink = ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0
+        if ($isLink -or -not $item.PSIsContainer -or ($owner -ne 'S-1-5-18' -and $owner -ne 'S-1-5-32-544')) {
+            # rmdir はリンクの先をたどらない
+            & cmd.exe /c rmdir /s /q "`"$dir`"" 2>$null
+            if (Test-Path -LiteralPath $dir) { & cmd.exe /c del /f /q "`"$dir`"" 2>$null }
+            if (Test-Path -LiteralPath $dir) { throw "記録のフォルダーを作り直せませんでした: $dir" }
+            Warn "管理者以外が作った記録のフォルダーを消して、作り直しました: $dir"
+            $item = $null
+        }
+    }
+    $sec = New-Object System.Security.AccessControl.DirectorySecurity
+    $sec.SetSecurityDescriptorSddlForm($LogDirSddl)
+    if ($item) { $item.SetAccessControl($sec) }
+    else { [void][System.IO.Directory]::CreateDirectory($dir, $sec) }
 }
 
 # ロック中・ログオン前だけ標準の HID に戻すサービスを登録して開始する（既にあれば登録し直す）
 function Install-MtpService {
     Remove-MtpService
+    Initialize-LogDirectory
     $bin = '"' + (Join-Path $InstallDir 'mtpswitchsvc.exe') + '"'
     New-Service -Name $ServiceName -BinaryPathName $bin -StartupType Automatic `
         -DisplayName 'MAGITRA ロック中の標準マウス切り替え' `
@@ -109,6 +147,7 @@ function Test-SameUserAsDesktop {
 # pnputil /enum-drivers の出力から、元の名前が mtpusb.inf のパッケージの公開名（oemNN.inf）を集める（表示言語に依存しない）
 function Get-MtpDriverPackages {
     $text = (& pnputil.exe /enum-drivers) -join "`n"
+    if ($LASTEXITCODE -ne 0) { throw "ドライバーの一覧を読めませんでした（pnputil の終了コード $LASTEXITCODE）" }
     $names = @()
     foreach ($block in ($text -split "`n\s*`n")) {
         if ($block -match [regex]::Escape($DriverInfName) -and $block -match '(oem\d+\.inf)') {
@@ -118,17 +157,18 @@ function Get-MtpDriverPackages {
     return $names | Select-Object -Unique
 }
 
-function Remove-InstallerCertificates {
-    $thumbs = @()
+# $Keep に渡した拇印の証明書は残す（導入し直したときの新しい証明書）
+function Remove-InstallerCertificates([string]$Keep = '', [string[]]$Also = @()) {
+    $thumbs = @($Also)
     $saved = (Get-ItemProperty $StateKey -ErrorAction SilentlyContinue).CertThumbprint
     if ($saved) { $thumbs += $saved }
     $thumbs += Get-ChildItem Cert:\LocalMachine\Root | Where-Object Subject -eq $CertSubject | ForEach-Object Thumbprint
-    foreach ($t in ($thumbs | Select-Object -Unique)) {
+    foreach ($t in ($thumbs | Where-Object { $_ -and $_ -ne $Keep } | Select-Object -Unique)) {
         $path = "Cert:\LocalMachine\Root\$t"
         if (Test-Path $path) { Remove-Item $path; Info "信頼されたルートから外しました: $t" }
     }
     # 万一、秘密鍵つきの証明書が残っていたら消す（通常は署名直後に消している）
-    Get-ChildItem Cert:\LocalMachine\My | Where-Object Subject -eq $CertSubject | ForEach-Object {
+    Get-ChildItem Cert:\LocalMachine\My | Where-Object { $_.Subject -eq $CertSubject -and $_.Thumbprint -ne $Keep } | ForEach-Object {
         Remove-Item "Cert:\LocalMachine\My\$($_.Thumbprint)" -DeleteKey
     }
 }
@@ -153,18 +193,21 @@ function Install-Mtp {
     Stop-MtpApps
 
     Step '作業用フォルダーにファイルを用意しています'
-    $stage = Join-Path $env:TEMP ('mtpsetup-stage-' + [Guid]::NewGuid().ToString('N'))
+    # 署名するファイルは、管理者と SYSTEM だけが書ける展開先（mtpsetup.exe が用意する $Payload）の中で扱う
+    $stage = Join-Path $Payload ('stage-' + [Guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $stage | Out-Null
     Copy-Item (Join-Path $Payload $agentSource) (Join-Path $stage 'mtpagent.exe')
     Copy-Item (Join-Path $Payload 'mtpsettings.exe') (Join-Path $stage 'mtpsettings.exe')
     Copy-Item (Join-Path $Payload 'MtpUsb.inf') (Join-Path $stage 'MtpUsb.inf')
     Copy-Item (Join-Path $Payload 'mtpusb.cat') (Join-Path $stage 'mtpusb.cat')
 
+    # 途中で失敗したときに戻すための記録。以前の証明書・ドライバー・ファイルは、新しいものが揃うまで残す
+    $oldThumb = (Get-ItemProperty $StateKey -ErrorAction SilentlyContinue).CertThumbprint
+    $cert = $null
+    $trustedNew = $false
+    $published = $null
+    $filesTouched = $false
     try {
-        Step '以前の MAGITRA の証明書を片付けています'
-        Remove-InstallerCertificates
-        if ($RemoveLegacyCertificate) { Remove-LegacyCertificates }
-
         Step '使い捨ての証明書を作って署名しています'
         # タイムスタンプを付けられないため、証明書が切れると署名も無効になる。秘密鍵は消すので、期限を長くとる
         $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject $CertSubject -CertStoreLocation Cert:\LocalMachine\My `
@@ -190,6 +233,7 @@ function Install-Mtp {
         if ($Mode -eq 'UIAccess') {
             Step 'この PC で証明書を信頼させています（UIAccess に必要）'
             Import-Certificate -FilePath $cerFile -CertStoreLocation Cert:\LocalMachine\Root | Out-Null
+            $trustedNew = $true
             $check = Get-AuthenticodeSignature (Join-Path $stage 'mtpagent.exe')
             if ($check.Status -ne 'Valid') { throw "署名を確かめられませんでした: $($check.StatusMessage)" }
             Info "署名を確かめました（証明書 $($cert.Thumbprint)）"
@@ -200,19 +244,18 @@ function Install-Mtp {
         $out = & pnputil.exe /add-driver (Join-Path $stage 'MtpUsb.inf') /install
         $code = $LASTEXITCODE
         $out | ForEach-Object { if ($_.Trim()) { Info $_.Trim() } }
+        # この導入で加わったパッケージ（失敗したときに戻すため、終了コードを見る前に調べる）
+        $published = @(Get-MtpDriverPackages) | Where-Object { $before -notcontains $_ } | Select-Object -First 1
+        if (-not $published) {
+            $published = ($out -join "`n") | Select-String -Pattern 'oem\d+\.inf' | ForEach-Object { $_.Matches[0].Value } | Select-Object -First 1
+        }
         # 0 = 成功、259 = 追加したが今は当てる機器がない、3010 = 再起動が必要
         if ($code -ne 0 -and $code -ne 259 -and $code -ne 3010) { throw "ドライバーを導入できませんでした（pnputil の終了コード $code）" }
         if ($code -eq 259) { Warn 'トラックパッドが USB でつながっていないため、ドライバーは登録だけしました。つなぐと自動で当たります' }
         if ($code -eq 3010) { Warn '再起動が必要です' }
-        $published = ($out -join "`n") | Select-String -Pattern 'oem\d+\.inf' | ForEach-Object { $_.Matches[0].Value } | Select-Object -First 1
-        foreach ($old in $before) {
-            if ($old -ne $published) {
-                & pnputil.exe /delete-driver $old | Out-Null
-                Info "以前のドライバーパッケージを取り除きました: $old"
-            }
-        }
 
         Step "$InstallDir にコピーしています"
+        $filesTouched = $true
         New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
         Copy-Item (Join-Path $stage 'mtpagent.exe') (Join-Path $InstallDir 'mtpagent.exe') -Force
         Copy-Item (Join-Path $stage 'mtpsettings.exe') (Join-Path $InstallDir 'mtpsettings.exe') -Force
@@ -224,14 +267,7 @@ function Install-Mtp {
             Copy-Item $SetupExe (Join-Path $InstallDir 'mtpsetup.exe') -Force
         }
 
-        if ($LockScreenService) {
-            Step 'ロック中とログオン前の切り替えサービスを登録しています'
-            Install-MtpService
-        }
-        else {
-            Remove-MtpService
-        }
-
+        # この先で失敗しても「アプリ」の一覧（mtpsetup.exe の「取り除く」）から元に戻せるよう、コピーの直後に登録する
         Step '「アプリ」の一覧に登録しています'
         New-Item -Path $StateKey -Force | Out-Null
         Set-ItemProperty $StateKey -Name Mode -Value $Mode
@@ -248,6 +284,27 @@ function Install-Mtp {
         Set-ItemProperty $UninstallKey -Name DisplayIcon -Value (Join-Path $InstallDir 'mtpagent.exe')
         Set-ItemProperty $UninstallKey -Name UninstallString -Value ('"' + $setupPath + '" /uninstall')
         Set-ItemProperty $UninstallKey -Name ModifyPath -Value ('"' + $setupPath + '"')
+
+        if ($LockScreenService) {
+            Step 'ロック中とログオン前の切り替えサービスを登録しています'
+            Install-MtpService
+        }
+        else {
+            Remove-MtpService
+        }
+
+        # 新しいものが揃ったので、以前のドライバーパッケージと証明書を片付ける
+        Step '以前のドライバーと証明書を片付けています'
+        foreach ($old in $before) {
+            if ($old -ne $published) {
+                $null = & pnputil.exe /delete-driver $old
+                if ($LASTEXITCODE -eq 0) { Info "以前のドライバーパッケージを取り除きました: $old" }
+                else { Warn "以前のドライバーパッケージを取り除けませんでした: $old（pnputil の終了コード $LASTEXITCODE）" }
+            }
+        }
+        $keep = if ($Mode -eq 'UIAccess') { $cert.Thumbprint } else { '' }
+        Remove-InstallerCertificates -Keep $keep -Also @($oldThumb)
+        if ($RemoveLegacyCertificate) { Remove-LegacyCertificates }
 
         $agentPath = Join-Path $InstallDir 'mtpagent.exe'
         if (Test-SameUserAsDesktop) {
@@ -273,6 +330,34 @@ function Install-Mtp {
         }
         Write-Output "DONE: 導入しました（$(if ($Mode -eq 'UIAccess') { 'UIAccess 版' } else { '標準版' })）"
     }
+    catch {
+        $err = $_
+        if (-not $filesTouched) {
+            # ファイルはまだ以前のまま。この導入で加えたドライバーと証明書だけを戻せば、導入前の状態に戻る
+            if ($published) {
+                $null = & pnputil.exe /delete-driver $published /uninstall /force
+                if ($LASTEXITCODE -eq 0) {
+                    Info "この導入で加えたドライバーパッケージを取り除きました: $published"
+                    if ($before.Count -gt 0) { $null = & pnputil.exe /scan-devices }
+                }
+                else { Warn "この導入で加えたドライバーパッケージを取り除けませんでした: $published（pnputil の終了コード $LASTEXITCODE）" }
+            }
+            if ($trustedNew -and $cert) {
+                try {
+                    Remove-Item "Cert:\LocalMachine\Root\$($cert.Thumbprint)" -ErrorAction Stop
+                    Info "この導入で信頼させた証明書を外しました: $($cert.Thumbprint)"
+                }
+                catch { Warn "この導入で信頼させた証明書を外せませんでした: $($cert.Thumbprint)" }
+            }
+            Warn '途中で止まったため、この導入で加えた変更を戻しました。以前の状態のままです'
+        }
+        else {
+            # ファイルを置き換え始めた後は、以前と新しい証明書の両方を信頼したまま残す（どちらの exe も起動できるように）
+            Warn '新しいファイルを置いた後で止まりました。もう一度導入し直すか、「取り除く」で元に戻してください'
+            Warn "すぐに標準のマウスに戻すには、管理者権限で $(Join-Path $InstallDir 'mtpswitch.exe') hid を実行します"
+        }
+        throw $err
+    }
     finally {
         Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
     }
@@ -286,9 +371,23 @@ function Uninstall-Mtp {
     Remove-MtpService
 
     Step 'WinUSB を外して、Windows 標準のドライバーに戻しています'
+    $failedPkgs = @()
     foreach ($pkg in @(Get-MtpDriverPackages)) {
-        & pnputil.exe /delete-driver $pkg /uninstall /force | Out-Null
-        Info "ドライバーパッケージを取り除きました: $pkg"
+        $out = & pnputil.exe /delete-driver $pkg /uninstall /force
+        # 3010 = 取り除いたが再起動が必要
+        if ($LASTEXITCODE -eq 0 -or $LASTEXITCODE -eq 3010) {
+            Info "ドライバーパッケージを取り除きました: $pkg"
+            if ($LASTEXITCODE -eq 3010) { Warn '再起動が必要です' }
+        }
+        else {
+            $out | ForEach-Object { if ($_.Trim()) { Info $_.Trim() } }
+            $failedPkgs += $pkg
+        }
+    }
+    if ($failedPkgs.Count -gt 0 -or @(Get-MtpDriverPackages).Count -gt 0) {
+        # WinUSB が残ったまま常駐アプリや mtpswitch.exe を消すと、トラックパッドを使う手段がなくなる。ここで止めて、ほかは残す
+        throw "WinUSB のドライバーパッケージを取り除けませんでした（$((@($failedPkgs) + @(Get-MtpDriverPackages) | Select-Object -Unique) -join ', ')）。" +
+            "ファイル・証明書・「アプリ」の一覧の登録は残しています。再起動してから、もう一度「取り除く」を実行してください"
     }
     Info 'USB ケーブルを抜き差しすると、確実に標準のドライバーに戻ります'
 

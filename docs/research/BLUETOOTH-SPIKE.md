@@ -24,7 +24,7 @@ tools\mtpdump\build.cmd
 ## 2. テスト署名用の証明書を作る（初回のみ）
 
 ```powershell
-$cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=MTP Test Signing" `
+$cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=MAGITRA Test Signing" `
   -CertStoreLocation Cert:\CurrentUser\My -KeyUsage DigitalSignature -NotAfter (Get-Date).AddYears(2)
 Export-Certificate -Cert $cert -FilePath build\MtpTest.cer
 ```
@@ -36,9 +36,9 @@ Export-Certificate -Cert $cert -FilePath build\MtpTest.cer
 ```powershell
 $kit = "${env:ProgramFiles(x86)}\Windows Kits\10\bin\10.0.26100.0"
 $pkg = "build\drivers\Debug\MtpBth"
-& "$kit\x64\signtool.exe" sign /fd sha256 /s My /n "MTP Test Signing" "$pkg\MtpBth.sys"
+& "$kit\x64\signtool.exe" sign /fd sha256 /s My /n "MAGITRA Test Signing" "$pkg\MtpBth.sys"
 & "$kit\x86\Inf2Cat.exe" /driver:$pkg /os:10_X64
-& "$kit\x64\signtool.exe" sign /fd sha256 /s My /n "MTP Test Signing" "$pkg\MtpBth.cat"
+& "$kit\x64\signtool.exe" sign /fd sha256 /s My /n "MAGITRA Test Signing" "$pkg\MtpBth.cat"
 ```
 
 ## 4. 証明書を信頼する（初回のみ・セキュリティ設定の変更）
@@ -62,10 +62,10 @@ bcdedit /set testsigning on
 pnputil /add-driver build\drivers\Debug\MtpBth\MtpBth.inf /install
 ```
 
-デバイスマネージャーの「システム デバイス」に **Magic Trackpad (MTP Bluetooth spike)** が出れば成功。
+デバイスマネージャーの「システム デバイス」に **Magic Trackpad (MAGITRA Bluetooth spike)** が出れば成功。
 
 Windows 標準の hidbth が選ばれたままの場合は、手動で切り替える。
-デバイスマネージャー →「ヒューマン インターフェイス デバイス」→「Bluetooth HID デバイス」（Magic Trackpad のもの）→ ドライバーの更新 →「コンピューターを参照」→「一覧から選択」→ **Magic Trackpad (MTP Bluetooth spike)**。
+デバイスマネージャー →「ヒューマン インターフェイス デバイス」→「Bluetooth HID デバイス」（Magic Trackpad のもの）→ ドライバーの更新 →「コンピューターを参照」→「一覧から選択」→ **Magic Trackpad (MAGITRA Bluetooth spike)**。
 
 ## 7. 動作を確認する（管理者権限は不要）
 
@@ -82,7 +82,7 @@ build\mtpdump\mtpdump.exe --hex
 ## 元に戻す
 
 ```powershell
-pnputil /enum-drivers | Select-String -Context 1,4 "MTP Project"   # oemNN.inf の番号を確認
+pnputil /enum-drivers | Select-String -Context 1,4 "MAGITRA"   # oemNN.inf の番号を確認
 pnputil /delete-driver oemNN.inf /uninstall /force
 ```
 
@@ -92,8 +92,8 @@ pnputil /delete-driver oemNN.inf /uninstall /force
 
 ```powershell
 bcdedit /set testsigning off
-certutil -delstore Root "MTP Test Signing"
-certutil -delstore TrustedPublisher "MTP Test Signing"
+certutil -delstore Root "MAGITRA Test Signing"
+certutil -delstore TrustedPublisher "MAGITRA Test Signing"
 ```
 
 `bcdedit` の変更は次回起動から効く。再起動し、デスクトップ右下の「テスト モード」表示が消えたことを確認して完了。

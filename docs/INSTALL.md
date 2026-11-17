@@ -58,6 +58,11 @@ python probe\caps.py
 | ドライバーストア | WinUSB を当てる INF（`MtpUsb.inf`、Magic Trackpad の MI_01 だけが対象） |
 | 証明書ストア | 導入ごとに作る署名用の証明書（`CN=MAGITRA Local Signing`）。署名したらすぐ秘密鍵を消すので、ほかのものには署名できない |
 | `HKCU\Software\MAGITRA\Agent` | ユーザーごとの設定（設定画面で変えたときに作られる） |
+| `C:\ProgramData\MAGITRA\` | サービスの記録 `switch.log`（サービスを入れたとき。管理者と SYSTEM だけが書ける） |
+
+導入が途中で止まったとき:
+- ファイルを置き換える前に止まった場合は、その導入で加えたドライバーと証明書を戻し、導入前の状態のままにする
+- ファイルを置き換えた後で止まった場合は、以前と新しい証明書の両方を残す。もう一度導入し直すか、「取り除く」で元に戻す
 
 ### 証明書について
 
@@ -78,6 +83,7 @@ python probe\caps.py
 
 「設定」→「アプリ」の一覧の「MAGITRA」からアンインストールするか、`C:\Program Files\MAGITRA\mtpsetup.exe` で「取り除く」を選ぶ。
 WinUSB が外れ、トラックパッドは Windows 標準のマウスに戻る。ユーザーの設定（`HKCU\Software\MAGITRA\Agent`）は残る。
+WinUSB を外せなかったときは、そこで止まり、ファイル・証明書・「アプリ」の一覧の登録は残す（トラックパッドを使う手段をなくさないため）。再起動してから、もう一度「取り除く」を実行する。
 
 ## 困ったとき
 

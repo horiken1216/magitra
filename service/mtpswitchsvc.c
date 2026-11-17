@@ -26,6 +26,7 @@
 #include <wtsapi32.h>
 #include <userenv.h>
 #include <sddl.h>
+#include <aclapi.h>
 #include <locale.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -65,6 +66,66 @@ static void LogPath(wchar_t *path, DWORD len, BOOL old)
     swprintf_s(path, len, L"%s\\MAGITRA\\switch.log%s", base, old ? L".old" : L"");
 }
 
+/*
+ * 記録のフォルダーは、管理者と SYSTEM だけが書けるようにする（継承を切る）。%ProgramData% の既定の権限では
+ * 一般ユーザーも中にファイルやリンクを作れるので、SYSTEM で書く記録を別のファイルへ向けられてしまう。
+ * 一般ユーザーが先に作ったフォルダー（所有者が SYSTEM・Administrators でない）やリンクになったフォルダーには書かない。
+ * インストーラーも同じ権限で作る（setup-core.ps1 の Initialize-LogDirectory）。
+ */
+#define LOG_DIR_SDDL L"D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FRFX;;;BU)"
+
+static int g_logDirState; /* 0 = まだ見ていない、1 = 使える、-1 = 使わない */
+
+static BOOL PrepareLogDir(const wchar_t *dir)
+{
+    PSECURITY_DESCRIPTOR sd = NULL, current = NULL;
+    SECURITY_ATTRIBUTES sa;
+    PSID owner = NULL;
+    PACL dacl = NULL;
+    BOOL present = FALSE, defaulted = FALSE, ok = FALSE;
+    DWORD attr;
+
+    if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(LOG_DIR_SDDL, SDDL_REVISION_1, &sd, NULL)) {
+        return FALSE;
+    }
+    sa.nLength = sizeof(sa);
+    sa.lpSecurityDescriptor = sd;
+    sa.bInheritHandle = FALSE;
+    if (!CreateDirectoryW(dir, &sa) && GetLastError() != ERROR_ALREADY_EXISTS) {
+        goto done;
+    }
+    attr = GetFileAttributesW(dir);
+    if (attr == INVALID_FILE_ATTRIBUTES || !(attr & FILE_ATTRIBUTE_DIRECTORY) || (attr & FILE_ATTRIBUTE_REPARSE_POINT)) {
+        goto done;
+    }
+    if (GetNamedSecurityInfoW(dir, SE_FILE_OBJECT, OWNER_SECURITY_INFORMATION, &owner, NULL, NULL, NULL, &current) != ERROR_SUCCESS ||
+        owner == NULL ||
+        (!IsWellKnownSid(owner, WinLocalSystemSid) && !IsWellKnownSid(owner, WinBuiltinAdministratorsSid))) {
+        goto done;
+    }
+    /* 前の版が既定の権限で作ったフォルダーでも、ここで権限を絞り直す */
+    if (!GetSecurityDescriptorDacl(sd, &present, &dacl, &defaulted) || !present ||
+        SetNamedSecurityInfoW((LPWSTR)dir, SE_FILE_OBJECT, DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+            NULL, NULL, dacl, NULL) != ERROR_SUCCESS) {
+        goto done;
+    }
+    ok = TRUE;
+done:
+    if (current != NULL) {
+        LocalFree(current);
+    }
+    LocalFree(sd);
+    return ok;
+}
+
+/* 開いた記録がリンク（リパースポイント・ハードリンク）でなければ TRUE */
+static BOOL IsPlainFile(HANDLE f)
+{
+    BY_HANDLE_FILE_INFORMATION info;
+    return GetFileInformationByHandle(f, &info) && !(info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) &&
+        info.nNumberOfLinks == 1;
+}
+
 static void WriteLog(const wchar_t *message)
 {
     wchar_t path[MAX_PATH], dir[MAX_PATH], line[1200];
@@ -89,8 +150,20 @@ static void WriteLog(const wchar_t *message)
     LogPath(path, MAX_PATH, FALSE);
     wcscpy_s(dir, MAX_PATH, path);
     *wcsrchr(dir, L'\\') = L'\0';
-    CreateDirectoryW(dir, NULL);
-    f = CreateFileW(path, FILE_APPEND_DATA, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (g_logDirState == 0) {
+        g_logDirState = PrepareLogDir(dir) ? 1 : -1;
+    }
+    if (g_logDirState < 0) {
+        LeaveCriticalSection(&g_logLock);
+        return;
+    }
+    /* リンクをたどらずに開き、リンクだったら書かない */
+    f = CreateFileW(path, FILE_APPEND_DATA | FILE_READ_ATTRIBUTES, FILE_SHARE_READ, NULL, OPEN_ALWAYS,
+        FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, NULL);
+    if (f != INVALID_HANDLE_VALUE && !IsPlainFile(f)) {
+        CloseHandle(f);
+        f = INVALID_HANDLE_VALUE;
+    }
     if (f != INVALID_HANDLE_VALUE) {
         DWORD written;
         BOOL rotate = GetFileSizeEx(f, &size) && size.QuadPart > LOG_MAX_BYTES;
@@ -209,7 +282,10 @@ static BOOL InstalledAsUiAccess(void)
         _wcsicmp(mode, L"UIAccess") == 0;
 }
 
-static void LaunchAgent(DWORD session)
+/* 常駐アプリの起動の結果。LAUNCH_RETRY は一時的な失敗（少し後でもう一度試す） */
+typedef enum { LAUNCH_DONE, LAUNCH_RETRY } LAUNCH_RESULT;
+
+static LAUNCH_RESULT LaunchAgent(DWORD session)
 {
     HANDLE user = NULL, primary = NULL;
     LPVOID env = NULL;
@@ -218,27 +294,28 @@ static void LaunchAgent(DWORD session)
     STARTUPINFOW si;
     PROCESS_INFORMATION pi;
     DWORD n;
+    LAUNCH_RESULT result;
 
     n = GetModuleFileNameW(NULL, dir, MAX_PATH);
     if (n == 0 || n >= MAX_PATH || (slash = wcsrchr(dir, L'\\')) == NULL) {
-        return;
+        return LAUNCH_DONE;
     }
     *slash = L'\0';
     swprintf_s(exe, MAX_PATH, L"%s\\mtpagent.exe", dir);
     if (GetFileAttributesW(exe) == INVALID_FILE_ATTRIBUTES) {
-        return;
+        return LAUNCH_DONE;
     }
     if (!WTSQueryUserToken(session, &user)) {
         LogF(L"常駐アプリを起動できません（利用者の資格を得られない、エラー %lu）", GetLastError());
-        return;
+        return LAUNCH_RETRY; /* ログオンの直後はまだ得られないことがある */
     }
     if (!UserWantsAutostart(user)) {
         CloseHandle(user);
-        return; /* 「ログオン時に起動」を選んでいない */
+        return LAUNCH_DONE; /* 「ログオン時に起動」を選んでいない */
     }
     if (!DuplicateTokenEx(user, TOKEN_ALL_ACCESS, NULL, SecurityImpersonation, TokenPrimary, &primary)) {
         CloseHandle(user);
-        return;
+        return LAUNCH_RETRY;
     }
     CloseHandle(user);
     if (InstalledAsUiAccess()) {
@@ -251,7 +328,7 @@ static void LaunchAgent(DWORD session)
         if (!SetTokenInformation(primary, TokenUIAccess, &on, sizeof(on))) {
             LogF(L"常駐アプリを起動できません（UIAccess を付けられない、エラー %lu）", GetLastError());
             CloseHandle(primary);
-            return;
+            return LAUNCH_DONE; /* 権限の問題なので、繰り返しても変わらない */
         }
     }
     if (!CreateEnvironmentBlock(&env, primary, FALSE)) {
@@ -267,13 +344,16 @@ static void LaunchAgent(DWORD session)
         LogF(L"常駐アプリを起動しました（セッション %lu）", session);
         CloseHandle(pi.hThread);
         CloseHandle(pi.hProcess);
+        result = LAUNCH_DONE;
     } else {
         LogF(L"常駐アプリを起動できませんでした（エラー %lu）", GetLastError());
+        result = LAUNCH_RETRY;
     }
     if (env != NULL) {
         DestroyEnvironmentBlock(env);
     }
     CloseHandle(primary);
+    return result;
 }
 
 /* ---- 作業スレッド ---- */
@@ -285,15 +365,37 @@ static void LaunchAgent(DWORD session)
  */
 #define POLL_MS 1000
 
-static DWORD g_launchedSession = 0xFFFFFFFF; /* 常駐アプリを起動したセッション（同じセッションでは一度だけ） */
+#define LAUNCH_MAX_TRIES 10 /* 一時的な失敗のとき、1 秒おきに試す回数 */
+
+/* 作業スレッドだけが使う */
+static DWORD g_launchedSession = 0xFFFFFFFF; /* 常駐アプリの起動を済ませたセッション（同じセッションでは一度だけ） */
+static DWORD g_retrySession = 0xFFFFFFFF;    /* 起動に一時的に失敗し、もう一度試すセッション */
+static int g_retryCount;
 
 static void LaunchAgentOnce(DWORD session)
 {
     if (session == 0xFFFFFFFF || session == g_launchedSession) {
         return;
     }
+    if (session != g_retrySession) {
+        g_retrySession = session;
+        g_retryCount = 0;
+    }
+    if (LaunchAgent(session) == LAUNCH_RETRY && ++g_retryCount < LAUNCH_MAX_TRIES) {
+        return; /* 作業スレッドの見回り（1 秒ごと）で、もう一度試す */
+    }
+    if (g_retryCount >= LAUNCH_MAX_TRIES) {
+        LogF(L"常駐アプリの起動をあきらめました（セッション %lu、%d 回）", session, g_retryCount);
+    }
     g_launchedSession = session;
-    LaunchAgent(session);
+    g_retrySession = 0xFFFFFFFF;
+}
+
+/* ログオフしたら記録を消す（同じセッション番号が次のログオンで使い回されても、起動できるように） */
+static void ForgetLaunchedSession(void)
+{
+    g_launchedSession = 0xFFFFFFFF;
+    g_retrySession = 0xFFFFFFFF;
 }
 
 static DWORD WINAPI Worker(LPVOID param)
@@ -324,6 +426,9 @@ static DWORD WINAPI Worker(LPVOID param)
                 break;
             }
             ResetEvent(g_wake);
+            if (InterlockedCompareExchange(&g_loggedOff, 0, 0)) {
+                ForgetLaunchedSession(); /* ログオフとログオンの知らせが一緒に来たとき、ログオンの起動を止めない */
+            }
             {
                 LONG session = InterlockedExchange(&g_logonSession, -1);
                 if (session >= 0) {
@@ -351,6 +456,8 @@ static DWORD WINAPI Worker(LPVOID param)
             LaunchAgentOnce(WTSGetActiveConsoleSessionId());
             Reconcile(L"使い始めを検出");
             lastFull = GetTickCount64();
+        } else if (active && g_retrySession != 0xFFFFFFFF && g_retrySession == WTSGetActiveConsoleSessionId()) {
+            LaunchAgentOnce(g_retrySession); /* 前回の一時的な失敗のやり直し */
         } else if (GetTickCount64() - lastFull >= RECHECK_MS) {
             Reconcile(L"定期の見直し");
             lastFull = GetTickCount64();

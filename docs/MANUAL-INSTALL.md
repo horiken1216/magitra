@@ -136,5 +136,5 @@ USB ケーブルを抜き差しすると、MI_01 は Windows 標準の HID ド�
 ```powershell
 certutil -delstore Root "MAGITRA Test Signing"
 certutil -delstore TrustedPublisher "MAGITRA Test Signing"
-Get-ChildItem Cert:\CurrentUser\My | Where-Object Subject -eq "CN=MAGITRA Test Signing" | Remove-Item
+Get-ChildItem Cert:\CurrentUser\My | Where-Object Subject -eq "CN=MAGITRA Test Signing" | Remove-Item -DeleteKey   # 秘密鍵も消す
 ```
