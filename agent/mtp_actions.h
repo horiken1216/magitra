@@ -25,6 +25,7 @@ typedef enum MTP_ACTION {
     MTP_ACTION_BROWSER_FORWARD = 8,/* 進む（Alt+→） */
     MTP_ACTION_PLAY_PAUSE = 9,     /* 再生・一時停止（メディアキー） */
     MTP_ACTION_SEARCH = 10,        /* 検索（Win+S） */
+    MTP_ACTION_ZOOM_RESET = 11,    /* 拡大率を元に戻す（Ctrl+0。ブラウザーなど。Word・Excel では別の操作になる） */
     MTP_ACTION_COUNT
 } MTP_ACTION;
 

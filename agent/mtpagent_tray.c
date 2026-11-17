@@ -20,6 +20,7 @@
 #include <shellapi.h>
 #include <stdio.h>
 #include <string.h>
+#include <wtsapi32.h>
 
 #include "mtp_actions.h"
 #include "mtp_core.h"
@@ -27,11 +28,13 @@
 #include "mtp_gesture.h"
 #include "mtp_haptic_out.h"
 #include "mtp_input.h"
+#include "mtp_momentum.h"
 #include "mtp_settings.h"
 
 #define APP_NAME            L"MTP Agent"
 #define WINDOW_CLASS        MTP_AGENT_WINDOW_CLASS
 #define MUTEX_NAME          L"Local\\MtpAgentSingleInstance"
+#define AUTOSTART_ARG       L"/autostart"
 #define RUN_KEY             L"Software\\Microsoft\\Windows\\CurrentVersion\\Run"
 #define RUN_VALUE           L"MTP Agent"
 #define SETTINGS_EXE        L"mtpsettings.exe"
@@ -54,7 +57,8 @@ typedef enum LINK_STATE {
     LINK_CONNECTED = 1,
     LINK_NOT_FOUND = 2,   /* WinUSB 未導入か、USB 未接続 */
     LINK_OPEN_FAILED = 3, /* 他のプログラム（mtpagent-cli など）が使っている可能性 */
-    LINK_DISCONNECTED = 4
+    LINK_DISCONNECTED = 4,
+    LINK_RELEASED = 5     /* ロック中などで、トラックパッドを Windows に返している */
 } LINK_STATE;
 
 static HWND g_hwnd;
@@ -64,6 +68,12 @@ static UINT g_msgHapticTest;
 static HANDLE g_stopEvent;
 static HANDLE g_worker;
 static volatile LONG g_paused = 0;
+/*
+ * ロック中・切断中は 1。WinUSB のハンドルを閉じて、開き直さない。
+ * ハンドルを開いたままだと、MtpSwitch サービスが標準の HID に切り替えても機器を止められず
+ * （「再起動が必要」のまま）、WinUSB で動き続けてしまう。
+ */
+static volatile LONG g_released = 0;
 static volatile LONG g_state = LINK_STARTING;
 static MTP_HAPTIC_OUT g_haptic;   /* 読み取りスレッドだけが使う */
 static MTP_HAPTIC_OUT g_uiHaptic; /* メインスレッドだけが使う（設定画面の「試す」） */
@@ -137,29 +147,33 @@ static void AbortPendingRead(void)
 
 /* ---- ログオン時の起動 ---- */
 
-/* Run に登録する値（実行ファイルのパスを引用符で囲む） */
-static BOOL BuildRunCommand(wchar_t *out, DWORD capacity)
+/*
+ * Run に登録する値（実行ファイルのパスを引用符で囲み、/autostart を付ける）。
+ * /autostart で起動したときは、すでに起動していれば何も出さずに終わる。
+ * MtpSwitch サービスがログオン直後に起動し、そのあと Windows が Run から起動することがあるため。
+ */
+static BOOL BuildRunCommand(wchar_t *out, DWORD capacity, BOOL withArg)
 {
     wchar_t path[MAX_PATH];
     DWORD n = GetModuleFileNameW(NULL, path, MAX_PATH);
     if (n == 0 || n >= MAX_PATH) {
         return FALSE;
     }
-    return swprintf_s(out, capacity, L"\"%s\"", path) > 0;
+    return swprintf_s(out, capacity, withArg ? L"\"%s\" " AUTOSTART_ARG : L"\"%s\"", path) > 0;
 }
 
-/* 登録済み、かつ今の実行ファイルを指しているときだけ TRUE */
+/* 登録済み、かつ今の実行ファイルを指しているときだけ TRUE（/autostart を付ける前の値も認める） */
 static BOOL IsAutostartEnabled(void)
 {
-    wchar_t expected[MAX_PATH + 4], actual[MAX_PATH + 4];
+    wchar_t withArg[MAX_PATH + 32], bare[MAX_PATH + 32], actual[MAX_PATH + 32];
     DWORD size = sizeof(actual);
-    if (!BuildRunCommand(expected, ARRAYSIZE(expected))) {
+    if (!BuildRunCommand(withArg, ARRAYSIZE(withArg), TRUE) || !BuildRunCommand(bare, ARRAYSIZE(bare), FALSE)) {
         return FALSE;
     }
     if (RegGetValueW(HKEY_CURRENT_USER, RUN_KEY, RUN_VALUE, RRF_RT_REG_SZ, NULL, actual, &size) != ERROR_SUCCESS) {
         return FALSE;
     }
-    return _wcsicmp(expected, actual) == 0;
+    return _wcsicmp(withArg, actual) == 0 || _wcsicmp(bare, actual) == 0;
 }
 
 static BOOL SetAutostart(BOOL enable)
@@ -170,8 +184,8 @@ static BOOL SetAutostart(BOOL enable)
         return FALSE;
     }
     if (enable) {
-        wchar_t command[MAX_PATH + 4];
-        if (!BuildRunCommand(command, ARRAYSIZE(command))) {
+        wchar_t command[MAX_PATH + 32];
+        if (!BuildRunCommand(command, ARRAYSIZE(command), TRUE)) {
             RegCloseKey(key);
             return FALSE;
         }
@@ -194,6 +208,94 @@ static void SetLinkState(LINK_STATE s)
     }
 }
 
+/* ---- 慣性スクロール ---- */
+
+/*
+ * 指を離した後もスクロールを続けるので、トラックパッドのフレームとは別のスレッドで時間を刻む
+ * （指が触れていない間、フレームが届き続けるとは限らない）。約 8ms ごとに進める。
+ */
+#define MOMENTUM_TICK_MS 8
+
+static CRITICAL_SECTION g_momLock;
+static MTP_MOMENTUM g_momentum;
+static HANDLE g_momWake;   /* 始めた合図（自動リセット） */
+static HANDLE g_momThread;
+
+static void MomentumStart(float vx, float vy)
+{
+    EnterCriticalSection(&g_momLock);
+    MtpMomentumStart(&g_momentum, vx, vy);
+    LeaveCriticalSection(&g_momLock);
+    SetEvent(g_momWake);
+}
+
+static void MomentumStop(void)
+{
+    EnterCriticalSection(&g_momLock);
+    MtpMomentumStop(&g_momentum);
+    LeaveCriticalSection(&g_momLock);
+}
+
+static DWORD WINAPI MomentumMain(LPVOID param)
+{
+    HANDLE timer;
+    HANDLE wait[2];
+    LARGE_INTEGER freq;
+
+    UNREFERENCED_PARAMETER(param);
+    QueryPerformanceFrequency(&freq);
+    /* 高精度のタイマー（Windows 10 1803 以降）。使えなければ普通のタイマー（約 15ms 刻みになる） */
+    timer = CreateWaitableTimerExW(NULL, NULL, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
+    if (timer == NULL) {
+        timer = CreateWaitableTimerW(NULL, FALSE, NULL);
+    }
+    wait[0] = g_stopEvent;
+    wait[1] = g_momWake;
+    while (WaitForMultipleObjects(2, wait, FALSE, INFINITE) == WAIT_OBJECT_0 + 1) {
+        LARGE_INTEGER last, now;
+        QueryPerformanceCounter(&last);
+        for (;;) {
+            int h = 0, v = 0, active;
+            MTP_EVENT ev;
+            if (timer != NULL) {
+                LARGE_INTEGER due;
+                due.QuadPart = -(LONGLONG)MOMENTUM_TICK_MS * 10000; /* 100ns 単位の相対時間 */
+                SetWaitableTimer(timer, &due, 0, NULL, NULL, FALSE);
+                wait[1] = timer;
+                if (WaitForMultipleObjects(2, wait, FALSE, INFINITE) == WAIT_OBJECT_0) {
+                    break;
+                }
+                wait[1] = g_momWake;
+            } else if (WaitForSingleObject(g_stopEvent, MOMENTUM_TICK_MS) == WAIT_OBJECT_0) {
+                break;
+            }
+            QueryPerformanceCounter(&now);
+            EnterCriticalSection(&g_momLock);
+            active = MtpMomentumStep(&g_momentum, (float)((double)(now.QuadPart - last.QuadPart) * 1000.0 / (double)freq.QuadPart), &h, &v);
+            LeaveCriticalSection(&g_momLock);
+            last = now;
+            if (h != 0 || v != 0) {
+                memset(&ev, 0, sizeof(ev));
+                ev.type = MTP_EVENT_SCROLL;
+                ev.dx = h;
+                ev.dy = v;
+                MtpInputSend(&ev);
+            }
+            if (!active) {
+                break;
+            }
+        }
+        wait[1] = g_momWake;
+        if (WaitForSingleObject(g_stopEvent, 0) == WAIT_OBJECT_0) {
+            break;
+        }
+    }
+    if (timer != NULL) {
+        CloseHandle(timer);
+    }
+    return 0;
+}
+
 static void SendEvents(const MTP_SETTINGS *s, const MTP_EVENT *ev, size_t n)
 {
     size_t i;
@@ -205,6 +307,12 @@ static void SendEvents(const MTP_SETTINGS *s, const MTP_EVENT *ev, size_t n)
             MtpActionRun((MTP_ACTION)s->force_action);
         } else if (ev[i].type == MTP_EVENT_SWIPE) {
             MtpActionRun(MtpSettingsSwipeAction(s, ev[i].fingers, ev[i].direction));
+        } else if (ev[i].type == MTP_EVENT_DOUBLE_TAP) {
+            MtpActionRun((MTP_ACTION)s->double_tap_action);
+        } else if (ev[i].type == MTP_EVENT_FLING) {
+            MomentumStart((float)ev[i].dx, (float)ev[i].dy);
+        } else if (ev[i].type == MTP_EVENT_TOUCH) {
+            MomentumStop(); /* 触れたら止める（Mac と同じ） */
         } else {
             MtpInputSend(&ev[i]);
         }
@@ -230,6 +338,9 @@ static DWORD WINAPI WorkerMain(LPVOID param)
     MtpSettingsApply(&settings, &config);
     MtpGestureInit(&gesture, &config);
     MtpHapticOutInit(&g_haptic);
+    EnterCriticalSection(&g_momLock);
+    g_momentum.tau_ms = MtpSettingsGlideToTau(settings.inertia_glide);
+    LeaveCriticalSection(&g_momLock);
 
     while (WaitForSingleObject(g_stopEvent, 0) == WAIT_TIMEOUT) {
         UCHAR raw[1024];
@@ -239,6 +350,19 @@ static DWORD WINAPI WorkerMain(LPVOID param)
         DWORD err = 0;
         int paused;
         LONG version;
+
+        if (InterlockedCompareExchange(&g_released, 0, 0)) {
+            MomentumStop();
+            if (connected) {
+                n = MtpGestureRelease(&gesture, events, MTP_GESTURE_MAX_EVENTS);
+                SendEvents(&settings, events, n);
+                CloseDevice(&dev);
+                connected = 0;
+            }
+            SetLinkState(LINK_RELEASED);
+            WaitForSingleObject(g_stopEvent, 500);
+            continue;
+        }
 
         if (!connected) {
             MTP_DEVICE_STATUS ds = MtpDeviceOpen(&dev, &err);
@@ -262,6 +386,9 @@ static DWORD WINAPI WorkerMain(LPVOID param)
             if (WaitForSingleObject(g_stopEvent, 0) == WAIT_OBJECT_0) {
                 break; /* 終了時の中断で読み取りが失敗しただけ */
             }
+            if (InterlockedCompareExchange(&g_released, 0, 0)) {
+                continue; /* ロックで中断しただけ。すぐ休止に入る */
+            }
             SetLinkState(LINK_DISCONNECTED);
             WaitForSingleObject(g_stopEvent, RECONNECT_MS);
             continue;
@@ -277,11 +404,15 @@ static DWORD WINAPI WorkerMain(LPVOID param)
             GetSettings(&settings);
             MtpSettingsApply(&settings, &config);
             gesture.config = config;
+            EnterCriticalSection(&g_momLock);
+            g_momentum.tau_ms = MtpSettingsGlideToTau(settings.inertia_glide);
+            LeaveCriticalSection(&g_momLock);
         }
 
         /* 一時停止に入った瞬間に、押したままのボタンを離す */
         paused = (int)InterlockedCompareExchange(&g_paused, 0, 0);
         if (paused && !wasPaused) {
+            MomentumStop();
             n = MtpGestureRelease(&gesture, events, MTP_GESTURE_MAX_EVENTS);
             SendEvents(&settings, events, n);
         }
@@ -293,7 +424,7 @@ static DWORD WINAPI WorkerMain(LPVOID param)
         if (rr != MTP_READ_FRAME || paused) {
             continue;
         }
-        n = MtpGestureProcess(&gesture, &frame, events, MTP_GESTURE_MAX_EVENTS);
+        n = MtpGestureProcessAt(&gesture, &frame, (double)GetTickCount64(), events, MTP_GESTURE_MAX_EVENTS);
         SendEvents(&settings, events, n);
     }
 
@@ -318,6 +449,7 @@ static const wchar_t *StateText(void)
     case LINK_NOT_FOUND: return L"トラックパッドが見つかりません（USB 未接続か WinUSB 未導入）";
     case LINK_OPEN_FAILED: return L"トラックパッドを開けません（mtpagent-cli など別のプログラムが使用中）";
     case LINK_DISCONNECTED: return L"切断されました。再接続を待っています";
+    case LINK_RELEASED: return L"ロック中のため休止しています";
     default: return L"起動中";
     }
 }
@@ -426,6 +558,53 @@ static void OnCommand(HWND hwnd, UINT id)
     }
 }
 
+/* この利用者のセッションがロックされているか（調べられなければ、ロックされていないとみなす） */
+static int IsOwnSessionLocked(void)
+{
+    WTSINFOEXW *info = NULL;
+    DWORD bytes = 0;
+    int locked = 0;
+    if (WTSQuerySessionInformationW(WTS_CURRENT_SERVER_HANDLE, WTS_CURRENT_SESSION, WTSSessionInfoEx, (LPWSTR *)&info, &bytes) &&
+        info != NULL && info->Level == 1) {
+        /* Windows 10 以降: WTS_SESSIONSTATE_LOCK = 0 */
+        locked = info->Data.WTSInfoExLevel1.SessionFlags == WTS_SESSIONSTATE_LOCK;
+    }
+    if (info != NULL) {
+        WTSFreeMemory(info);
+    }
+    return locked;
+}
+
+static void SetReleased(int released)
+{
+    InterlockedExchange(&g_released, released ? 1 : 0);
+    if (released) {
+        AbortPendingRead(); /* 読み取り待ちを中断して、すぐにハンドルを閉じさせる */
+    }
+}
+
+static void OnSessionChange(WPARAM code)
+{
+    switch (code) {
+    case WTS_SESSION_LOCK:
+    case WTS_CONSOLE_DISCONNECT:
+    case WTS_REMOTE_DISCONNECT:
+    case WTS_SESSION_LOGOFF:
+        SetReleased(1);
+        break;
+    case WTS_SESSION_UNLOCK:
+    case WTS_SESSION_LOGON:
+        SetReleased(0);
+        break;
+    case WTS_CONSOLE_CONNECT:
+    case WTS_REMOTE_CONNECT:
+        SetReleased(IsOwnSessionLocked()); /* つなぎ直した先がロック画面なら、解除を待つ */
+        break;
+    default:
+        break;
+    }
+}
+
 static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
     if (msg == g_taskbarCreated && g_taskbarCreated != 0) {
@@ -453,10 +632,14 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
     case WM_LINK_STATE:
         UpdateTray(NIM_MODIFY);
         return 0;
+    case WM_WTSSESSION_CHANGE:
+        OnSessionChange(wParam);
+        return 0;
     case WM_COMMAND:
         OnCommand(hwnd, LOWORD(wParam));
         return 0;
     case WM_DESTROY:
+        WTSUnRegisterSessionNotification(hwnd);
         SetEvent(g_stopEvent);
         AbortPendingRead(); /* 読み取り中なら中断して、すぐに停止要求を見させる */
         if (g_worker != NULL) {
@@ -478,11 +661,14 @@ int WINAPI wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev, _In_ PWSTR
     MSG msg;
 
     UNREFERENCED_PARAMETER(prev);
-    UNREFERENCED_PARAMETER(cmdLine);
     UNREFERENCED_PARAMETER(show);
 
     mutex = CreateMutexW(NULL, TRUE, MUTEX_NAME);
     if (mutex == NULL || GetLastError() == ERROR_ALREADY_EXISTS) {
+        if (cmdLine != NULL && wcsstr(cmdLine, AUTOSTART_ARG) != NULL) {
+            if (mutex) CloseHandle(mutex);
+            return 0; /* 自動起動が重なっただけ。黙って終わる */
+        }
         MessageBoxW(NULL, L"MTP Agent はすでに起動しています。タスクトレイのアイコンから操作してください。", APP_NAME,
             MB_ICONINFORMATION | MB_OK);
         if (mutex) CloseHandle(mutex);
@@ -490,6 +676,9 @@ int WINAPI wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev, _In_ PWSTR
     }
 
     InitializeCriticalSection(&g_devLock);
+    InitializeCriticalSection(&g_momLock);
+    MtpMomentumInit(&g_momentum);
+    g_momWake = CreateEventW(NULL, FALSE, FALSE, NULL);
     InitializeCriticalSection(&g_settingsLock);
     MtpSettingsLoad(&g_settings);
     MtpHapticOutInit(&g_uiHaptic);
@@ -512,8 +701,12 @@ int WINAPI wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev, _In_ PWSTR
         return 1;
     }
     UpdateTray(NIM_ADD);
+    /* ロックされたらトラックパッドを手放す（MtpSwitch サービスが標準の HID に切り替えられるように） */
+    WTSRegisterSessionNotification(g_hwnd, NOTIFY_FOR_THIS_SESSION);
+    InterlockedExchange(&g_released, IsOwnSessionLocked());
 
     g_worker = CreateThread(NULL, 0, WorkerMain, NULL, 0, NULL);
+    g_momThread = CreateThread(NULL, 0, MomentumMain, NULL, 0, NULL);
     if (g_worker == NULL) {
         MessageBoxW(g_hwnd, L"読み取りスレッドを開始できませんでした。", APP_NAME, MB_ICONERROR | MB_OK);
         DestroyWindow(g_hwnd);
@@ -525,6 +718,12 @@ int WINAPI wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev, _In_ PWSTR
     }
 
     if (g_worker) CloseHandle(g_worker);
+    if (g_momThread) {
+        WaitForSingleObject(g_momThread, 1000);
+        CloseHandle(g_momThread);
+    }
+    if (g_momWake) CloseHandle(g_momWake);
+    DeleteCriticalSection(&g_momLock);
     CloseHandle(g_stopEvent);
     DeleteCriticalSection(&g_settingsLock);
     DeleteCriticalSection(&g_devLock);

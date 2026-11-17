@@ -17,6 +17,11 @@
  * | HapticSharpness   | 0..0x20   | 0    | Force Touch の振動: 鋭さ                                     |
  * | HapticDepth       | 0..0x40   | 0x40 | Force Touch の振動: 重さ                                     |
  * | Swipe3Left など   | MTP_ACTION| 下表 | スワイプの割り当て（Swipe{3,4}{Left,Right,Up,Down}）          |
+ * | Inertia           | 0/1       | 1    | 慣性スクロール                                               |
+ * | InertiaGlide      | 1..100    | 50   | 慣性の滑る長さ（50 で 0.4 秒、50 上げるごとに 2 倍）         |
+ * | Pinch             | 0/1       | 1    | ピンチで拡大縮小（Ctrl + ホイール）                          |
+ * | TwoFingerDoubleTap| MTP_ACTION| 11   | 2 本指のダブルタップの割り当て（既定は拡大率を戻す）         |
+ * | DoubleTapInterval | 200..800  | 400  | ダブルタップの間隔（ミリ秒。1 回目を離してから 2 回目まで）  |
  */
 #ifndef MTP_SETTINGS_H
 #define MTP_SETTINGS_H
@@ -53,6 +58,11 @@ typedef struct MTP_SETTINGS {
     int haptic_sharpness;
     int haptic_depth;
     int swipe[2][4]; /* [指の本数 - 3][MTP_DIRECTION] = MTP_ACTION */
+    int inertia_enabled;
+    int inertia_glide;
+    int pinch_enabled;
+    int double_tap_action;
+    int double_tap_interval;
 } MTP_SETTINGS;
 
 void MtpSettingsDefaults(MTP_SETTINGS *s);
@@ -75,6 +85,9 @@ void MtpSettingsHaptic(const MTP_SETTINGS *s, MTP_HAPTIC *haptic);
 
 /* 速さ（1..100）を倍率に変換する。50 で base、25 上げるごとに 2 倍 */
 float MtpSettingsSpeedToGain(int speed, float base);
+
+/* 慣性の滑る長さ（1..100）を、速さが 1/e になる時間（ミリ秒）に変換する。50 で 400ms、50 上げるごとに 2 倍 */
+float MtpSettingsGlideToTau(int glide);
 
 #ifdef __cplusplus
 }

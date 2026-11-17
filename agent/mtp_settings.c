@@ -39,6 +39,11 @@ void MtpSettingsDefaults(MTP_SETTINGS *s)
     s->swipe[1][MTP_DIR_RIGHT] = MTP_ACTION_APP_SWITCH;
     s->swipe[1][MTP_DIR_UP] = MTP_ACTION_NONE;
     s->swipe[1][MTP_DIR_DOWN] = MTP_ACTION_NONE;
+    s->inertia_enabled = 1;
+    s->inertia_glide = 50;
+    s->pinch_enabled = 1;
+    s->double_tap_action = MTP_ACTION_ZOOM_RESET;
+    s->double_tap_interval = 400;
 }
 
 static int ClampInt(int v, int lo, int hi)
@@ -65,6 +70,11 @@ void MtpSettingsClamp(MTP_SETTINGS *s)
     s->haptic_strength = ClampInt(s->haptic_strength, 0, MTP_ACTUATOR_STRENGTH_MAX);
     s->haptic_sharpness = ClampInt(s->haptic_sharpness, 0, MTP_ACTUATOR_SHARPNESS_MAX);
     s->haptic_depth = ClampInt(s->haptic_depth, 0, MTP_ACTUATOR_DEPTH_MAX);
+    s->inertia_enabled = s->inertia_enabled ? 1 : 0;
+    s->inertia_glide = ClampInt(s->inertia_glide, 1, 100);
+    s->pinch_enabled = s->pinch_enabled ? 1 : 0;
+    s->double_tap_action = ClampAction(s->double_tap_action);
+    s->double_tap_interval = ClampInt(s->double_tap_interval, 200, 800);
     for (f = 0; f < 2; f++) {
         for (d = 0; d < 4; d++) {
             s->swipe[f][d] = ClampAction(s->swipe[f][d]);
@@ -98,6 +108,11 @@ void MtpSettingsLoad(MTP_SETTINGS *s)
         ReadInt(key, L"HapticStrength", &s->haptic_strength);
         ReadInt(key, L"HapticSharpness", &s->haptic_sharpness);
         ReadInt(key, L"HapticDepth", &s->haptic_depth);
+        ReadInt(key, L"Inertia", &s->inertia_enabled);
+        ReadInt(key, L"InertiaGlide", &s->inertia_glide);
+        ReadInt(key, L"Pinch", &s->pinch_enabled);
+        ReadInt(key, L"TwoFingerDoubleTap", &s->double_tap_action);
+        ReadInt(key, L"DoubleTapInterval", &s->double_tap_interval);
         for (f = 0; f < 2; f++) {
             for (d = 0; d < 4; d++) {
                 ReadInt(key, kSwipeNames[f][d], &s->swipe[f][d]);
@@ -126,6 +141,12 @@ float MtpSettingsSpeedToGain(int speed, float base)
     return base * powf(2.0f, (float)(speed - 50) / 25.0f);
 }
 
+float MtpSettingsGlideToTau(int glide)
+{
+    glide = ClampInt(glide, 1, 100);
+    return 400.0f * powf(2.0f, (float)(glide - 50) / 50.0f);
+}
+
 void MtpSettingsApply(const MTP_SETTINGS *s, MTP_GESTURE_CONFIG *config)
 {
     MtpGestureDefaultConfig(config);
@@ -136,6 +157,10 @@ void MtpSettingsApply(const MTP_SETTINGS *s, MTP_GESTURE_CONFIG *config)
     config->pointer_accel = (float)s->pointer_accel / 10.0f;
     config->scroll_gain = MtpSettingsSpeedToGain(s->scroll_speed, SCROLL_GAIN_BASE);
     config->force_threshold = (uint8_t)s->force_threshold;
+    config->inertia_enabled = s->inertia_enabled;
+    config->pinch_enabled = s->pinch_enabled;
+    config->double_tap_enabled = s->double_tap_action != MTP_ACTION_NONE;
+    config->double_tap_ms = (float)s->double_tap_interval;
 }
 
 MTP_ACTION MtpSettingsSwipeAction(const MTP_SETTINGS *s, int fingers, MTP_DIRECTION direction)

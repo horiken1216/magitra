@@ -5,6 +5,24 @@
 
 #include <string.h>
 
+/*
+ * 拡大縮小は Ctrl + ホイールで送る（ブラウザー・Office・エクスプローラーなどが対応）。
+ * Ctrl はピンチの間ずっと押したままにし、MTP_EVENT_ZOOM_END で離す。ホイールのたびに押し離しすると、
+ * Ctrl の 2 度押しに反応する道具（PowerToys のマウス検索など）が動いてしまうため。
+ * 利用者が自分で Ctrl を押しているときは、こちらからは押しも離しもしない。
+ */
+static LONG g_ctrlHeld = 0;
+
+static BOOL SendCtrl(BOOL down)
+{
+    INPUT k;
+    memset(&k, 0, sizeof(k));
+    k.type = INPUT_KEYBOARD;
+    k.ki.wVk = VK_CONTROL;
+    k.ki.dwFlags = down ? 0 : KEYEVENTF_KEYUP;
+    return SendInput(1, &k, sizeof(INPUT)) == 1;
+}
+
 BOOL MtpInputSend(const MTP_EVENT *ev)
 {
     INPUT in[2];
@@ -43,6 +61,24 @@ BOOL MtpInputSend(const MTP_EVENT *ev)
             n++;
         }
         break;
+    case MTP_EVENT_ZOOM:
+        if (ev->dy == 0) {
+            break;
+        }
+        if (!InterlockedCompareExchange(&g_ctrlHeld, 0, 0) && (GetAsyncKeyState(VK_CONTROL) & 0x8000) == 0) {
+            if (SendCtrl(TRUE)) {
+                InterlockedExchange(&g_ctrlHeld, 1);
+            }
+        }
+        in[0].mi.dwFlags = MOUSEEVENTF_WHEEL;
+        in[0].mi.mouseData = (DWORD)ev->dy;
+        n = 1;
+        break;
+    case MTP_EVENT_ZOOM_END:
+        if (InterlockedExchange(&g_ctrlHeld, 0)) {
+            return SendCtrl(FALSE);
+        }
+        return TRUE;
     default:
         break;
     }

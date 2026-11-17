@@ -20,6 +20,7 @@ const char *MtpActionName(MTP_ACTION action)
     case MTP_ACTION_BROWSER_FORWARD: return "進む";
     case MTP_ACTION_PLAY_PAUSE: return "再生・一時停止";
     case MTP_ACTION_SEARCH: return "検索";
+    case MTP_ACTION_ZOOM_RESET: return "拡大率を元に戻す（Ctrl+0）";
     default: return "なし";
     }
 }
@@ -90,6 +91,10 @@ BOOL MtpActionRun(MTP_ACTION action)
     }
     case MTP_ACTION_SEARCH: {
         static const WORD k[] = { VK_LWIN, 'S' };
+        return SendChord(k, 2);
+    }
+    case MTP_ACTION_ZOOM_RESET: {
+        static const WORD k[] = { VK_LCONTROL, '0' };
         return SendChord(k, 2);
     }
     case MTP_ACTION_MIDDLE_CLICK:

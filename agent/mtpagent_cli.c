@@ -112,6 +112,21 @@ static void PrintEvent(FILE *out, const char *prefix, const MTP_EVENT *ev)
             MtpActionName(MtpSettingsSwipeAction(&g_settings, ev->fingers, ev->direction)));
         break;
     }
+    case MTP_EVENT_FLING:
+        fprintf(out, "%s fling h=%d/s v=%d/s\n", prefix, ev->dx, ev->dy);
+        break;
+    case MTP_EVENT_TOUCH:
+        fprintf(out, "%s touch\n", prefix);
+        break;
+    case MTP_EVENT_ZOOM:
+        fprintf(out, "%s zoom %d\n", prefix, ev->dy);
+        break;
+    case MTP_EVENT_ZOOM_END:
+        fprintf(out, "%s zoom end\n", prefix);
+        break;
+    case MTP_EVENT_DOUBLE_TAP:
+        fprintf(out, "%s double tap → %s\n", prefix, MtpActionName((MTP_ACTION)g_settings.double_tap_action));
+        break;
     default:
         break;
     }
@@ -150,6 +165,9 @@ static void Emit(const OPTIONS *opt, const MTP_EVENT *events, size_t count)
             if (!MtpActionRun((MTP_ACTION)g_settings.force_action)) {
                 printf("SendInput failed: %lu\n", GetLastError());
             }
+        } else if (events[i].type == MTP_EVENT_DOUBLE_TAP) {
+            PrintEvent(stdout, "[gesture]", &events[i]);
+            MtpActionRun((MTP_ACTION)g_settings.double_tap_action);
         } else if (events[i].type == MTP_EVENT_SWIPE) {
             PrintEvent(stdout, "[gesture]", &events[i]);
             if (!MtpActionRun(MtpSettingsSwipeAction(&g_settings, events[i].fingers, events[i].direction))) {

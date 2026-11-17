@@ -34,6 +34,7 @@ namespace Mtp
             { "HapticStrength", 0x30 }, { "HapticSharpness", 0x00 }, { "HapticDepth", 0x40 },
             { "Swipe3Left", 1 }, { "Swipe3Right", 2 }, { "Swipe3Up", 3 }, { "Swipe3Down", 4 },
             { "Swipe4Left", 5 }, { "Swipe4Right", 5 }, { "Swipe4Up", 0 }, { "Swipe4Down", 0 },
+            { "Inertia", 1 }, { "InertiaGlide", 50 }, { "Pinch", 1 }, { "TwoFingerDoubleTap", 11 }, { "DoubleTapInterval", 400 },
         };
 
         public static int Get(string name)
@@ -68,10 +69,28 @@ namespace Mtp
             Agent.NotifySettingsChanged();
         }
 
-        // 常駐アプリと同じく、mtpagent.exe のパスを引用符で囲んで登録する（同じフォルダーにある前提）
+        // 常駐アプリと同じく、mtpagent.exe のパスを引用符で囲み、/autostart を付けて登録する（同じフォルダーにある前提）。
+        // /autostart で起動した常駐アプリは、すでに起動していれば黙って終わる（MtpSwitch サービスもログオン直後に起動するため）
         static string RunCommand()
         {
+            return "\"" + Agent.ExePath + "\" /autostart";
+        }
+
+        // /autostart を付ける前の登録も「有効」とみなす
+        static string LegacyRunCommand()
+        {
             return "\"" + Agent.ExePath + "\"";
+        }
+
+        // ロック中・ログオン前の切り替えサービス（MtpSwitch）をインストーラーで入れたか
+        public static bool IsLockScreenServiceInstalled()
+        {
+            using (RegistryKey key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\MTP\Installer"))
+            {
+                if (key == null) return false;
+                object v = key.GetValue("LockScreenService");
+                return v is int && (int)v != 0;
+            }
         }
 
         public static bool IsAutostartEnabled()
@@ -80,7 +99,8 @@ namespace Mtp
             {
                 if (key == null) return false;
                 string v = key.GetValue(RunValue) as string;
-                return v != null && string.Equals(v, RunCommand(), StringComparison.OrdinalIgnoreCase);
+                return v != null && (string.Equals(v, RunCommand(), StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(v, LegacyRunCommand(), StringComparison.OrdinalIgnoreCase));
             }
         }
 
@@ -174,6 +194,7 @@ namespace Mtp
             new ActionItem { Id = 8, Name = "進む" },
             new ActionItem { Id = 9, Name = "再生・一時停止" },
             new ActionItem { Id = 10, Name = "検索" },
+            new ActionItem { Id = 11, Name = "拡大率を元に戻す（Ctrl+0）" },
         };
     }
 
@@ -400,7 +421,7 @@ namespace Mtp
         UIElement PointerPage()
         {
             StackPanel p = new StackPanel();
-            p.Children.Add(PageTitle("ポインターとスクロール", "指 1 本でのポインター移動と、2 本指でのスクロールの感じを調整します。"));
+            p.Children.Add(PageTitle("ポインターとスクロール", "指 1 本でのポインター移動と、2 本指でのスクロール・拡大縮小の感じを調整します。"));
 
             StackPanel pointer = new StackPanel();
             pointer.Children.Add(SliderRow("PointerSpeed", 1, 100, "遅い", "速い", Multiplier));
@@ -413,6 +434,29 @@ namespace Mtp
             scroll.Children.Add(new Border { Height = 10 });
             scroll.Children.Add(Toggle("ナチュラルスクロール（Mac と同じ向き。内容が指と同じ向きに動く）", "NaturalScroll"));
             p.Children.Add(Card("スクロール", null, scroll));
+
+            StackPanel inertia = new StackPanel();
+            inertia.Children.Add(Toggle("慣性スクロール", "Inertia"));
+            inertia.Children.Add(new TextBlock { Text = "滑る長さ", Margin = new Thickness(0, 14, 0, 6) });
+            inertia.Children.Add(SliderRow("InertiaGlide", 1, 100, "短い", "長い",
+                delegate(int v) { return string.Format("{0:0.00} 秒", 0.4 * Math.Pow(2.0, (v - 50) / 50.0)); }));
+            p.Children.Add(Card("慣性スクロール", "2 本指で払って離すと、その勢いでしばらくスクロールが続きます。どこかに触れると止まります。", inertia));
+
+            StackPanel pinch = new StackPanel();
+            pinch.Children.Add(Toggle("ピンチで拡大・縮小する", "Pinch"));
+            pinch.Children.Add(new TextBlock { Text = "2 本指でダブルタップ（押し込まずに軽く 2 回たたく）", Margin = new Thickness(0, 14, 0, 6) });
+            pinch.Children.Add(ActionPicker("TwoFingerDoubleTap"));
+            pinch.Children.Add(new TextBlock { Text = "ダブルタップの間隔", Margin = new Thickness(0, 14, 0, 6) });
+            pinch.Children.Add(SliderRow("DoubleTapInterval", 200, 800, "速くたたく", "ゆっくりでもよい",
+                delegate(int v) { return string.Format("{0:0.00} 秒", v / 1000.0); }));
+            pinch.Children.Add(new TextBlock
+            {
+                Text = "「拡大率を元に戻す」は Ctrl+0 を送ります。ブラウザーやエクスプローラーでは元の大きさに戻りますが、Word や Excel では別の操作になります。",
+                Foreground = SubText,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 6, 0, 0)
+            });
+            p.Children.Add(Card("ピンチ", "2 本指を広げると拡大、つまむと縮小します（Ctrl + ホイールとして送ります。ブラウザーや Office などで使えます）。", pinch));
             return p;
         }
 
@@ -547,7 +591,11 @@ namespace Mtp
             agent.Children.Add(autostart);
             agent.Children.Add(new TextBlock
             {
-                Text = "ログオン画面とロック画面では、USB 接続のトラックパッドは動きません（Windows の仕様）。",
+                Text = Store.IsLockScreenServiceInstalled()
+                    ? "ログオン画面とロック画面では、トラックパッドは Windows 標準のマウスとして動きます（ポインター移動と左右のクリックだけ）。"
+                      + "ログオンした直後とロックを解除した直後は、切り替えのため数秒使えません。"
+                    : "ログオン画面とロック画面では、USB 接続のトラックパッドは動きません。"
+                      + "使えるようにするには、インストーラーで「ロック中とログオン前は、標準のマウスとして使えるようにする」を選んでください。",
                 Foreground = SubText,
                 TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(0, 10, 0, 0)

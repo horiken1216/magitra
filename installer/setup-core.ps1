@@ -11,7 +11,9 @@
 #   3. UIAccess 版のみ: その証明書（公開鍵だけ）を、この PC の「信頼されたルート」に登録する
 #   4. WinUSB を Magic Trackpad の MI_01 に当てる（pnputil）。以前の MTP のドライバーパッケージは取り除く
 #   5. C:\Program Files\MTP に常駐アプリ・設定画面・インストーラーをコピーし、「アプリ」の一覧に登録する
-#   6. 普段のユーザーと同じアカウントで動いていれば、ログオン時の起動の登録先を直し、常駐アプリを起動する
+#   6. -LockScreenService のとき: サービス MtpSwitch（ロック中・ログオン前だけ標準の HID に戻す）を登録して開始する。
+#      付けないときは、以前に登録したサービスを削除する
+#   7. 普段のユーザーと同じアカウントで動いていれば、ログオン時の起動の登録先を直し、常駐アプリを起動する
 # 取り除き（-Action Uninstall）: 上の逆。ユーザーの設定（HKCU\Software\MTP\Agent）は残す
 param(
     [Parameter(Mandatory = $true)][ValidateSet('Install', 'Uninstall')][string]$Action,
@@ -19,7 +21,9 @@ param(
     [string]$Payload = $PSScriptRoot,
     [string]$SetupExe = '',
     [switch]$RemoveLegacyCertificate,
-    [switch]$Launch
+    [switch]$LockScreenService,
+    [switch]$Launch,
+    [switch]$AutoStart
 )
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -31,7 +35,8 @@ $UninstallKey = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\MTP'
 $CertSubject = 'CN=MTP Local Signing'
 $LegacyCertSubject = 'CN=MTP Test Signing'   # 手作業の手順（docs\INSTALL-USB.md）で作った証明書
 $DriverInfName = 'mtpusb.inf'
-$Version = '0.1.0'
+$ServiceName = 'MtpSwitch'
+$Version = '0.2.0'
 
 function Step($m) { Write-Output "STEP: $m" }
 function Info($m) { Write-Output "INFO: $m" }
@@ -50,11 +55,43 @@ function Stop-MtpApps {
         Info '常駐アプリに終了を指示しました'
     }
     Get-Process mtpsettings -ErrorAction SilentlyContinue | ForEach-Object { [void]$_.CloseMainWindow() }
+    # サービスも止める（実行ファイルを上書きするため）。止めるだけなので、ドライバーは今のまま
+    $svc = Get-Service $ServiceName -ErrorAction SilentlyContinue
+    if ($svc -and $svc.Status -ne 'Stopped') {
+        Stop-Service $ServiceName -Force
+        $svc.WaitForStatus('Stopped', [TimeSpan]::FromSeconds(30))
+        Info 'サービス MtpSwitch を止めました'
+    }
     for ($i = 0; $i -lt 50; $i++) {
         if (-not (Get-Process mtpagent, mtpsettings -ErrorAction SilentlyContinue)) { return }
         Start-Sleep -Milliseconds 100
     }
     throw '常駐アプリか設定画面が終了しませんでした。手動で終了してから、もう一度実行してください。'
+}
+
+function Remove-MtpService {
+    $svc = Get-Service $ServiceName -ErrorAction SilentlyContinue
+    if (-not $svc) { return }
+    if ($svc.Status -ne 'Stopped') {
+        Stop-Service $ServiceName -Force
+        $svc.WaitForStatus('Stopped', [TimeSpan]::FromSeconds(30))
+    }
+    & sc.exe delete $ServiceName | Out-Null
+    for ($i = 0; $i -lt 50 -and (Get-Service $ServiceName -ErrorAction SilentlyContinue); $i++) { Start-Sleep -Milliseconds 100 }
+    Info 'サービス MtpSwitch を削除しました'
+}
+
+# ロック中・ログオン前だけ標準の HID に戻すサービスを登録して開始する（既にあれば登録し直す）
+function Install-MtpService {
+    Remove-MtpService
+    $bin = '"' + (Join-Path $InstallDir 'mtpswitchsvc.exe') + '"'
+    New-Service -Name $ServiceName -BinaryPathName $bin -StartupType Automatic `
+        -DisplayName 'MTP ロック中の標準マウス切り替え' `
+        -Description 'ロック中とログオン前だけ、Magic Trackpad を Windows 標準のマウスとして使えるようにします（MTP）。' | Out-Null
+    # 落ちたら自動で再起動する
+    & sc.exe failure $ServiceName reset= 86400 actions= restart/5000/restart/5000/restart/60000 | Out-Null
+    Start-Service $ServiceName
+    Info 'サービス MtpSwitch を登録して開始しました'
 }
 
 # 普段のユーザー（エクスプローラーを動かしているアカウント）と、このスクリプトのアカウントが同じか
@@ -104,7 +141,7 @@ function Remove-LegacyCertificates {
 
 function Install-Mtp {
     $agentSource = if ($Mode -eq 'UIAccess') { 'mtpagent-uiaccess.exe' } else { 'mtpagent-standard.exe' }
-    foreach ($f in @($agentSource, 'mtpsettings.exe', 'MtpUsb.inf', 'mtpusb.cat')) {
+    foreach ($f in @($agentSource, 'mtpsettings.exe', 'MtpUsb.inf', 'mtpusb.cat', 'mtpswitchsvc.exe', 'mtpswitch.exe')) {
         if (-not (Test-Path (Join-Path $Payload $f))) { throw "導入するファイルが見つかりません: $f" }
     }
 
@@ -175,14 +212,26 @@ function Install-Mtp {
         New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
         Copy-Item (Join-Path $stage 'mtpagent.exe') (Join-Path $InstallDir 'mtpagent.exe') -Force
         Copy-Item (Join-Path $stage 'mtpsettings.exe') (Join-Path $InstallDir 'mtpsettings.exe') -Force
+        # ロック中の切り替えサービスと、困ったときに手動で切り替える道具（mtpswitch hid / winusb）
+        Copy-Item (Join-Path $Payload 'mtpswitchsvc.exe') (Join-Path $InstallDir 'mtpswitchsvc.exe') -Force
+        Copy-Item (Join-Path $Payload 'mtpswitch.exe') (Join-Path $InstallDir 'mtpswitch.exe') -Force
         if ($SetupExe -and (Test-Path $SetupExe) -and ((Resolve-Path $SetupExe).Path -ne (Join-Path $InstallDir 'mtpsetup.exe'))) {
             Copy-Item $SetupExe (Join-Path $InstallDir 'mtpsetup.exe') -Force
+        }
+
+        if ($LockScreenService) {
+            Step 'ロック中とログオン前の切り替えサービスを登録しています'
+            Install-MtpService
+        }
+        else {
+            Remove-MtpService
         }
 
         Step '「アプリ」の一覧に登録しています'
         New-Item -Path $StateKey -Force | Out-Null
         Set-ItemProperty $StateKey -Name Mode -Value $Mode
         Set-ItemProperty $StateKey -Name Version -Value $Version
+        Set-ItemProperty $StateKey -Name LockScreenService -Value ([int][bool]$LockScreenService) -Type DWord
         if ($Mode -eq 'UIAccess') { Set-ItemProperty $StateKey -Name CertThumbprint -Value $cert.Thumbprint }
         else { Remove-ItemProperty $StateKey -Name CertThumbprint -ErrorAction SilentlyContinue }
         New-Item -Path $UninstallKey -Force | Out-Null
@@ -198,9 +247,14 @@ function Install-Mtp {
         $agentPath = Join-Path $InstallDir 'mtpagent.exe'
         if (Test-SameUserAsDesktop) {
             $run = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
-            if ((Get-ItemProperty $run -ErrorAction SilentlyContinue).'MTP Agent') {
-                Set-ItemProperty $run -Name 'MTP Agent' -Value ('"' + $agentPath + '"')
-                Info 'ログオン時の起動の登録先を新しい場所に直しました'
+            if ($AutoStart) {
+                # 常駐アプリのメニュー「ログオン時に起動」と同じ値（あとからメニューで外せる）
+                Set-ItemProperty $run -Name 'MTP Agent' -Value ('"' + $agentPath + '" /autostart')
+                Info 'ログオン時に常駐アプリを起動するよう登録しました'
+            }
+            elseif ((Get-ItemProperty $run -ErrorAction SilentlyContinue).'MTP Agent') {
+                Remove-ItemProperty $run -Name 'MTP Agent'
+                Info 'ログオン時の起動の登録を外しました'
             }
             if ($Launch) {
                 # 管理者権限から直接起動すると常駐アプリも管理者権限になるので、エクスプローラー経由で普通の権限で起動する
@@ -222,6 +276,9 @@ function Install-Mtp {
 function Uninstall-Mtp {
     Step '常駐アプリと設定画面を終了しています'
     Stop-MtpApps
+
+    Step '切り替えサービスを削除しています'
+    Remove-MtpService
 
     Step 'WinUSB を外して、Windows 標準のドライバーに戻しています'
     foreach ($pkg in @(Get-MtpDriverPackages)) {
@@ -245,7 +302,7 @@ function Uninstall-Mtp {
     }
 
     Step "$InstallDir を削除しています"
-    foreach ($name in 'mtpagent.exe', 'mtpsettings.exe') {
+    foreach ($name in 'mtpagent.exe', 'mtpsettings.exe', 'mtpswitchsvc.exe', 'mtpswitch.exe') {
         $p = Join-Path $InstallDir $name
         if (Test-Path $p) { Remove-Item $p -Force }
     }

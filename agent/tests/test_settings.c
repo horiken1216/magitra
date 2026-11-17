@@ -40,6 +40,7 @@ static void test_defaults_match_previous_behavior(void)
     CHECK(fromSettings.swipe_enabled == previous.swipe_enabled);
     CHECK(fromSettings.force_window_frames == previous.force_window_frames);
     CHECK(Near(fromSettings.swipe_units, previous.swipe_units));
+    CHECK(Near(fromSettings.double_tap_ms, previous.double_tap_ms));
 
     /* 割り当ての既定（3・4 本指ジェスチャーを追加したときの表と同じ） */
     CHECK(MtpSettingsSwipeAction(&s, 3, MTP_DIR_LEFT) == MTP_ACTION_DESKTOP_NEXT);
@@ -82,7 +83,9 @@ static void test_clamp(void)
     s.haptic_sharpness = 0x21;
     s.haptic_depth = 0x41;
     s.swipe[1][MTP_DIR_UP] = -1;
+    s.double_tap_interval = 50;
     MtpSettingsClamp(&s);
+    CHECK(s.double_tap_interval == 200);
     CHECK(s.natural_scroll == 1);
     CHECK(s.pointer_speed == 1 && s.scroll_speed == 100 && s.pointer_accel == 0);
     CHECK(s.force_threshold == 250);
@@ -104,7 +107,9 @@ static void test_apply_changes(void)
     s.pointer_accel = 0;
     s.force_threshold = 230;
     s.swipe[0][MTP_DIR_UP] = MTP_ACTION_SEARCH;
+    s.double_tap_interval = 650;
     MtpSettingsApply(&s, &c);
+    CHECK(Near(c.double_tap_ms, 650.0f));
     CHECK(c.natural_scroll == 0 && c.force_enabled == 0 && c.swipe_enabled == 0);
     CHECK(Near(c.pointer_accel, 0.0f));
     CHECK(c.force_threshold == 230);

@@ -1,4 +1,4 @@
-// MtpSetup.cs - MTP のインストーラー（WPF, .NET Framework 4.8 / C# 5。Windows 標準の csc でビルドする）
+﻿// MtpSetup.cs - MTP のインストーラー（WPF, .NET Framework 4.8 / C# 5。Windows 標準の csc でビルドする）
 //
 // 導入するファイルと処理本体（setup-core.ps1）を埋め込んであり、一時フォルダーに展開して実行する。
 // 画面は「選ぶ → 同意する → 進み具合 → 結果」。"/uninstall" を付けて起動すると、取り除くを選んだ状態で開く。
@@ -31,7 +31,7 @@ namespace Mtp
 
         // 選択
         RadioButton optUiAccess, optStandard, optUninstall;
-        CheckBox optLegacy, optLaunch;
+        CheckBox optLegacy, optLaunch, optService, optAutoStart;
 
         public SetupWindow(bool uninstall)
         {
@@ -41,7 +41,7 @@ namespace Mtp
 
             Title = "MTP セットアップ";
             Width = 680;
-            Height = 600;
+            Height = 720; // 同意画面の同意のチェックまで、スクロールせずに見えるように
             ResizeMode = ResizeMode.CanMinimize;
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
             FontFamily = new FontFamily("Yu Gothic UI, Segoe UI");
@@ -72,6 +72,17 @@ namespace Mtp
             using (RegistryKey key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\MTP\Installer"))
             {
                 return key == null ? null : key.GetValue("Mode") as string;
+            }
+        }
+
+        // 前回の導入でサービスを選んだか（初めての導入では既定でオン）
+        static bool ReadInstalledService()
+        {
+            using (RegistryKey key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\MTP\Installer"))
+            {
+                if (key == null) return true;
+                object v = key.GetValue("LockScreenService");
+                return !(v is int) || (int)v != 0;
             }
         }
 
@@ -172,8 +183,39 @@ namespace Mtp
                 installedMode == null ? "導入されていないため選べません。"
                                       : "常駐アプリとドライバー設定を取り除き、トラックパッドを Windows 標準のマウスに戻します。ポインターの速さなどの設定は残ります。"));
 
+            optService = new CheckBox
+            {
+                Content = "ロック中とログオン前は、標準のマウスとして使えるようにする",
+                IsChecked = ReadInstalledService(),
+                Margin = new Thickness(0, 8, 0, 0)
+            };
+            p.Children.Add(optService);
+            TextBlock serviceNote = new TextBlock
+            {
+                Text = "その間だけトラックパッドを Windows 標準のドライバーに戻します（ポインター移動と左右のクリックが使えます）。"
+                    + "切り替えに数秒かかるので、ロックした直後・解除した直後・起動した直後は少しの間使えません。",
+                TextWrapping = TextWrapping.Wrap,
+                Foreground = SubText,
+                Margin = new Thickness(24, 2, 0, 0)
+            };
+            p.Children.Add(serviceNote);
             optLaunch = new CheckBox { Content = "終わったら常駐アプリを起動する", IsChecked = true, Margin = new Thickness(0, 8, 0, 4) };
             p.Children.Add(optLaunch);
+            optAutoStart = new CheckBox { Content = "ログオンしたら常駐アプリを自動で起動する", IsChecked = true, Margin = new Thickness(0, 4, 0, 4) };
+            p.Children.Add(optAutoStart);
+
+            // 取り除くときは導入用の選択肢は意味がないので、選べなくする（手作業の証明書の片付けは、取り除くときも行える）
+            RoutedEventHandler syncOptions = delegate
+            {
+                bool installing = optUninstall.IsChecked != true;
+                optService.IsEnabled = installing;
+                optLaunch.IsEnabled = installing;
+                optAutoStart.IsEnabled = installing;
+                serviceNote.Opacity = installing ? 1.0 : 0.5;
+            };
+            optUninstall.Checked += syncOptions;
+            optUninstall.Unchecked += syncOptions;
+            syncOptions(null, null);
             optLegacy = new CheckBox
             {
                 Content = "手作業の手順で作った証明書（MTP Test Signing）を取り除く",
@@ -236,6 +278,7 @@ namespace Mtp
             {
                 Bullet(list, "Magic Trackpad の USB インターフェイス（MI_01）から WinUSB を外し、Windows 標準のドライバーに戻します。");
                 Bullet(list, "インストーラーが登録した証明書の信頼を外します。");
+                Bullet(list, "ロック中の切り替えサービス（MtpSwitch）を登録していれば、止めて削除します。");
                 Bullet(list, @"C:\Program Files\MTP と、「アプリ」の一覧の登録を削除します。");
                 Bullet(list, "ログオン時の起動の登録を外します。");
             }
@@ -243,9 +286,27 @@ namespace Mtp
             {
                 Section(list, "どちらの版でも行うこと");
                 Bullet(list, "Magic Trackpad の USB インターフェイス（MI_01）に、Microsoft 署名済みの WinUSB ドライバーを当てます。"
-                    + "常駐アプリがトラックパッドの生データを読むために必要です。常駐アプリが動いていない間（ログオン画面・ロック画面を含む）、USB 接続のトラックパッドは動きません。");
+                    + "常駐アプリがトラックパッドの生データを読むために必要です。WinUSB が当たっている間は、常駐アプリが動いていないと USB 接続のトラックパッドは動きません。");
                 Bullet(list, "その場限りの証明書を作り、MTP のファイルに署名します。署名後すぐに秘密鍵を消すので、この証明書で他のものに署名することはできません。");
                 Bullet(list, @"C:\Program Files\MTP に" + (uiAccess ? " UIAccess 版の" : " 標準版の") + "常駐アプリ・設定画面・インストーラーをコピーし、「アプリ」の一覧に登録します。");
+                if (optAutoStart.IsChecked == true)
+                {
+                    Bullet(list, "ログオンしたときに常駐アプリが起動するよう、普段のユーザーに登録します。");
+                }
+                else
+                {
+                    Bullet(list, "ログオン時の起動は登録しません（登録済みなら外します）。");
+                }
+                if (optService.IsChecked == true)
+                {
+                    Bullet(list, "サービス「MTP ロック中の標準マウス切り替え」（MtpSwitch）を、システム権限で自動起動するよう登録します。"
+                        + "ロック中とログオン前はトラックパッドを Windows 標準のドライバーに、ログオンして使っている間は WinUSB に切り替えます。"
+                        + "ログオン時の起動を選んでいれば、ログオンした直後にこのサービスが常駐アプリを起動します（Windows の自動起動の順番待ちを避けるため）。");
+                }
+                else
+                {
+                    Bullet(list, "ロック中の切り替えサービスは登録しません（登録済みなら削除します）。ロック画面とログオン画面では、USB 接続のトラックパッドは動きません。");
+                }
                 if (uiAccess)
                 {
                     Section(list, "UIAccess 版だけで行うこと");
@@ -276,11 +337,14 @@ namespace Mtp
             Button back = SecondaryButton("戻る");
             back.Click += delegate
             {
-                bool launch = optLaunch.IsChecked == true, legacy = optLegacy.IsChecked == true;
+                bool launch = optLaunch.IsChecked == true, legacy = optLegacy.IsChecked == true, service = optService.IsChecked == true;
+                bool autoStart = optAutoStart.IsChecked == true;
                 string mode = SelectedMode(), action = SelectedAction();
                 ShowChoosePage();
                 optLaunch.IsChecked = launch;
+                optAutoStart.IsChecked = autoStart;
                 optLegacy.IsChecked = legacy;
+                optService.IsChecked = service;
                 if (action == "Uninstall") optUninstall.IsChecked = true;
                 else if (mode == "Standard") optStandard.IsChecked = true;
                 else optUiAccess.IsChecked = true;
@@ -310,6 +374,7 @@ namespace Mtp
             string mode = SelectedMode();
             bool launch = optLaunch.IsChecked == true;
             bool legacy = optLegacy.IsChecked == true && optLegacy.Visibility == Visibility.Visible;
+            bool service = optService.IsChecked == true;
 
             StackPanel p = new StackPanel();
             TextBlock title = Heading(action == "Uninstall" ? "取り除いています..." : "導入しています...");
@@ -351,7 +416,9 @@ namespace Mtp
             args.Append(" -Payload \"").Append(payload).Append("\"");
             args.Append(" -SetupExe \"").Append(Assembly.GetExecutingAssembly().Location).Append("\"");
             if (legacy) args.Append(" -RemoveLegacyCertificate");
+            if (service) args.Append(" -LockScreenService");
             if (launch) args.Append(" -Launch");
+            if (optAutoStart.IsChecked == true) args.Append(" -AutoStart");
 
             ProcessStartInfo psi = new ProcessStartInfo("powershell.exe", args.ToString())
             {
@@ -407,7 +474,7 @@ namespace Mtp
             string dir = Path.Combine(Path.GetTempPath(), "mtpsetup-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(dir);
             Assembly asm = Assembly.GetExecutingAssembly();
-            foreach (string name in new string[] { "setup-core.ps1", "mtpagent-standard.exe", "mtpagent-uiaccess.exe", "mtpsettings.exe", "MtpUsb.inf", "mtpusb.cat" })
+            foreach (string name in new string[] { "setup-core.ps1", "mtpagent-standard.exe", "mtpagent-uiaccess.exe", "mtpsettings.exe", "MtpUsb.inf", "mtpusb.cat", "mtpswitchsvc.exe", "mtpswitch.exe" })
             {
                 using (Stream src = asm.GetManifestResourceStream(name))
                 {
