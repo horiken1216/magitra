@@ -2,9 +2,9 @@
 # uninstall.ps1 - install.ps1 で C:\Program Files\MTP に入れたものを取り除く
 #
 # 取り除くのは C:\Program Files\MTP の中身と、そこを指すログオン時の起動の登録だけ。
-# WinUSB の導入・証明書・設定（HKCU\Software\MTP\Agent）は変えない（docs\INSTALL-USB.md の「元に戻す」を参照）。
+# WinUSB の導入・証明書・設定（HKCU\Software\MTP\Agent）は変えない（docs\MANUAL-INSTALL.md の「元に戻す」を参照）。
 #
-# 使い方（管理者権限の PowerShell で）: powershell -ExecutionPolicy Bypass -File install\uninstall.ps1
+# 使い方（管理者権限の PowerShell で）: powershell -ExecutionPolicy Bypass -File tools\manual-install\uninstall.ps1
 $ErrorActionPreference = 'Stop'
 
 $dst = Join-Path $env:ProgramFiles 'MTP'

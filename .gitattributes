@@ -1,0 +1,14 @@
+# 改行はリポジトリでは LF、取り出したときの形は下のとおり
+* text=auto
+
+# Windows のツールが CRLF を前提にするもの
+*.cmd text eol=crlf
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+*.inf text eol=crlf
+*.rc  text eol=crlf
+
+# 画像など
+*.ico  binary
+*.png  binary
+*.webp binary

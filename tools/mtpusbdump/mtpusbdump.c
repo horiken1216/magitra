@@ -1,7 +1,7 @@
 /*
  * mtpusbdump.c - WinUSB 経由で Magic Trackpad (USB, MI_01) の生レポートを読み、MtpCore で解析して表示する
  *
- * 前提: drivers/MtpUsb/MtpUsb.inf で MI_01 に WinUSB を当ててあること（docs/INSTALL-USB.md）。
+ * 前提: drivers/MtpUsb/MtpUsb.inf で MI_01 に WinUSB を当ててあること（docs/INSTALL.md）。
  *
  * 使い方:
  *   mtpusbdump               マルチタッチモードへ切り替えてからレポートを表示し続ける（Ctrl+C で終了）

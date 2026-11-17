@@ -32,7 +32,7 @@ $InstallDir = Join-Path $env:ProgramFiles 'MTP'
 $StateKey = 'HKLM:\SOFTWARE\MTP\Installer'
 $UninstallKey = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\MTP'
 $CertSubject = 'CN=MTP Local Signing'
-$LegacyCertSubject = 'CN=MTP Test Signing'   # 手作業の手順（docs\INSTALL-USB.md）で作った証明書
+$LegacyCertSubject = 'CN=MTP Test Signing'   # 手作業の手順（docs\MANUAL-INSTALL.md）で作った証明書
 $DriverInfName = 'mtpusb.inf'
 $ServiceName = 'MtpSwitch'
 $Version = '0.2.0'

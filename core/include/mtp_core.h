@@ -36,7 +36,7 @@ extern "C" {
  *           第 3 世代（BT・HID の製品名は「Magic Trackpad」）で実機確認済み
  * - 0x0324: USB-C の Magic Trackpad（第 4 世代）。**仮対応（実機未確認）**。公開情報で、Actuator が MI_02・出力 0x53 であることなど
  *           第 3 世代と同じ作りと報告されているので受け付けるが、マルチタッチのレポート形式・切り替えレポート・
- *           インターフェイス番号が同じかは確かめていない（docs/INSTALL-USB.md「対応機種」）
+ *           インターフェイス番号が同じかは確かめていない（docs/INSTALL.md「対応機種」）
  */
 #define MTP_PID_MT2        0x0265
 #define MTP_PID_MT_USBC    0x0324
@@ -112,7 +112,7 @@ MTP_STATUS MtpParseReport(MTP_TRANSPORT transport, const uint8_t *report, size_t
  *
  * USB では MI_02（標準 HID のまま）に出力レポート 0x53 を書くと振動する。
  * テンプレートは imbushuo の公開 gist（USB, PID 0x0265）、強さ 3 バイトの位置は
- * MagicTrackpad2ForWindows PR #63 の BT 版との突き合わせで特定し、実機で体感を確認した（probe/FINDINGS.md）。
+ * MagicTrackpad2ForWindows PR #63 の BT 版との突き合わせで特定し、実機で体感を確認した（docs/research/FINDINGS.md）。
  *   strength : 主な強さ（上げると強くなる）
  *   sharpness: 鋭さ（振動の質が変わる）
  *   depth    : 深さ（上げると重くなる）

@@ -6,11 +6,11 @@ MtpBth は Magic Trackpad（Bluetooth）の生フレームを取り出して、�
 ## 始める前に
 
 - このドライバーはテスト署名で、カーネルで動く。不具合があるとブルースクリーンになりうる。作業前に復元ポイントを作っておく
-- テスト署名モードは Secure Boot がオフでないと有効にできないことが多い。**会社の PC では、情シスの規定で許されるか先に確認する**
+- テスト署名モードは Secure Boot がオフでないと有効にできないことが多い。**組織が管理する PC では、規定で許されているかを先に確かめる**
 - BitLocker が有効な場合は、ブート設定を変えると回復キーを求められることがある。回復キーを手元に用意しておく
 - 影響するのは Magic Trackpad（`BTHENUM\{00001124-...}_VID&0001004c_PID&0265`）だけ。他の Bluetooth 機器のドライバーは変えない
 
-以下、2〜6 は**管理者権限の PowerShell** で、リポジトリのルート（`C:\work\MTP`）から実行する。
+以下、2〜6 は**管理者権限の PowerShell** で、リポジトリのルートから実行する。
 
 ## 1. ビルド
 
@@ -24,7 +24,6 @@ tools\mtpdump\build.cmd
 ## 2. テスト署名用の証明書を作る（初回のみ）
 
 ```powershell
-cd C:\work\MTP   # 以降のパスはリポジトリのルートからの相対パス
 $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=MTP Test Signing" `
   -CertStoreLocation Cert:\CurrentUser\My -KeyUsage DigitalSignature -NotAfter (Get-Date).AddYears(2)
 Export-Certificate -Cert $cert -FilePath build\MtpTest.cer

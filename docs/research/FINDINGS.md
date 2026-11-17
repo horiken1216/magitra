@@ -1,4 +1,6 @@
-# Magic Trackpad プローブ結果（2026-11-16）
+# 調査記録（2026-11-16〜）
+
+開発中に実機で調べたこと・試したことの記録。日付順に追記している（「ユーザー確認」は開発者が実機で体感して確かめたもの）。
 
 ## デバイス
 - Magic Trackpad（Lightning、2021 年の第 3 世代）、PID 0x0265
@@ -7,7 +9,7 @@
   - 当初は PID と Linux の呼び名から「Magic Trackpad 2」と書いていた。2026-11-16 に呼び名を改めた
 - BT: VID 0x004C（BTHENUM / hidbth 経由）
 - USB: VID 0x05AC（充電専用ケーブルでは認識されなかった。データ通信用ケーブルでの結果は「USB 接続時」）
-- USB-C の第 4 世代（PID 0x0324）は手元になく、未確認（docs/INSTALL-USB.md「対応機種」）
+- USB-C の第 4 世代（PID 0x0324）は手元になく、未確認（docs/INSTALL.md「対応機種」）
 
 ## BT 接続時に Windows が公開している HID コレクション
 | コレクション | Usage | 入力 | 出力 | フィーチャー | 備考 |
@@ -126,7 +128,7 @@ USB Composite Device（`USB\VID_05AC&PID_0265`）の下に 4 インターフェ�
 
 - 普通の mtpagent.exe（Medium）からの SendInput は、管理者権限のウィンドウ（タスクマネージャーなど）に届かない（UIPI）
 - UIAccess 版（マニフェスト `level="asInvoker" uiAccess="true"`）を自己署名証明書で署名し、`C:\Program Files\MTP` に置いて起動
-  - install\check_uiaccess.ps1 の結果: uiAccess = True、elevated = False、整合性レベル High
+  - tools\manual-install\check_uiaccess.ps1 の結果: uiAccess = True、elevated = False、整合性レベル High
   - **タスクマネージャーの中でクリックとスクロールが効いた**（ユーザー確認）
 - 証明書について分かったこと
   - 手順 3（証明書を「信頼されたルート」に登録）をしないまま、WinUSB の INF は導入できていた（ドライバー本体が Microsoft 署名のため）

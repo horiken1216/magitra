@@ -58,4 +58,4 @@ copy /y "%SRC%\MtpBth.inf" "%PKG%\MtpBth.inf" >nul || exit /b 1
 "%WDK%\bin\%WDKVER%\x64\stampinf.exe" -f "%PKG%\MtpBth.inf" -d * -v 0.1.0.0 -k %KMDFVER% -a amd64 >nul || exit /b 1
 
 echo Built: %PKG%\MtpBth.sys
-echo Next (catalog + test signing): see docs\INSTALL-SPIKE.md
+echo Next (catalog + test signing): see docs\research\BLUETOOTH-SPIKE.md

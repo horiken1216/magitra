@@ -1,7 +1,7 @@
 /*
  * mtp_device.h - WinUSB 経由の Magic Trackpad (USB, MI_01) の接続と読み取り
  *
- * 前提: drivers/MtpUsb/MtpUsb.inf で MI_01 に WinUSB を当ててあること（docs/INSTALL-USB.md）。
+ * 前提: drivers/MtpUsb/MtpUsb.inf で MI_01 に WinUSB を当ててあること（docs/INSTALL.md）。
  */
 #ifndef MTP_DEVICE_H
 #define MTP_DEVICE_H

@@ -1,6 +1,6 @@
 @echo off
 rem Create the MtpUsb (WinUSB) driver package: copy the INF and generate the catalog.
-rem Signing the catalog is a separate step (needs the user's test certificate): see docs\INSTALL-USB.md
+rem Signing the catalog is a separate step (needs the user's test certificate): see docs\MANUAL-INSTALL.md
 setlocal
 set ROOT=%~dp0..\..
 set PKG=%ROOT%\build\drivers\MtpUsb

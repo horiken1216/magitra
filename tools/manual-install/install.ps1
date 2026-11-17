@@ -6,19 +6,19 @@
 #
 # 前提:
 #   - agent\build.cmd と settings\build.cmd を実行済み（build\agent\install\mtpagent.exe と build\agent\mtpsettings.exe がある）
-#   - docs\INSTALL-USB.md の手順 2 で作った証明書「MTP Test Signing」が、この管理者権限の PowerShell の
+#   - docs\MANUAL-INSTALL.md の手順 2 で作った証明書「MTP Test Signing」が、この管理者権限の PowerShell の
 #     ユーザーの証明書ストア（Cert:\CurrentUser\My）にある
-#   - その証明書が、この PC の「信頼されたルート」に登録済み（docs\INSTALL-USB.md の手順 3）。
+#   - その証明書が、この PC の「信頼されたルート」に登録済み（docs\MANUAL-INSTALL.md の手順 3）。
 #     WinUSB の導入には要らなかったが、UIAccess には必須
 #   - 常駐アプリをトレイのメニューの「終了」で止めてある
 #
 # このスクリプトがすること: 署名と確認、C:\Program Files\MTP へのコピーだけ。
 # ログオン時の起動の登録や常駐アプリの起動は、普段の画面で行う（最後に案内を出す）。
 #
-# 使い方（管理者権限の PowerShell で）: powershell -ExecutionPolicy Bypass -File install\install.ps1
+# 使い方（管理者権限の PowerShell で）: powershell -ExecutionPolicy Bypass -File tools\manual-install\install.ps1
 $ErrorActionPreference = 'Stop'
 
-$repo = Split-Path -Parent $PSScriptRoot
+$repo = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)   # tools\manual-install の 2 つ上
 $src = Join-Path $repo 'build\agent'
 $dst = Join-Path $env:ProgramFiles 'MTP'
 $signtool = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\bin\10.0.26100.0\x64\signtool.exe'
@@ -37,11 +37,11 @@ if (-not (Test-Path $signtool)) { throw "signtool が見つかりません: $sig
 $cert = Get-ChildItem Cert:\CurrentUser\My | Where-Object Subject -eq "CN=$certName" | Select-Object -First 1
 if (-not $cert) {
     throw "署名用の証明書「$certName」が、このユーザー（$env:USERNAME）の証明書ストアに見つかりません。" +
-        "docs\INSTALL-USB.md の手順 2 を、この管理者権限の PowerShell で実行したか確かめてください。"
+        "docs\MANUAL-INSTALL.md の手順 2 を、この管理者権限の PowerShell で実行したか確かめてください。"
 }
 if (-not (Get-ChildItem Cert:\LocalMachine\Root | Where-Object Thumbprint -eq $cert.Thumbprint)) {
     throw "証明書「$certName」が、この PC の「信頼されたルート」に登録されていません。UIAccess にはこの登録が必要です。" +
-        "docs\INSTALL-USB.md の手順 3（certutil -addstore Root ...）を先に実行してください。"
+        "docs\MANUAL-INSTALL.md の手順 3（certutil -addstore Root ...）を先に実行してください。"
 }
 
 # ---- 1. 署名して確かめる ----

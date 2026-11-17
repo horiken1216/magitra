@@ -179,7 +179,7 @@ static void test_enable_reports(void)
     CHECK(!MtpIsSupportedProduct(0x0000));
 }
 
-/* 2026-11-16 の実機試験で送り、体感を確認したバイト列（probe/FINDINGS.md） */
+/* 2026-11-16 の実機試験で送り、体感を確認したバイト列（docs/research/FINDINGS.md） */
 static void test_actuator_reports(void)
 {
     static const uint8_t baseline[14] = { 0x53, 0x01, 0x15, 0x6C, 0x02, 0x00, 0x21, 0x2B, 0x06, 0x01, 0x00, 0x16, 0x41, 0x13 };

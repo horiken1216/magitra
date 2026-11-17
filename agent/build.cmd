@@ -49,7 +49,7 @@ echo Built: %OUT%\mtpagent.exe
 
 rem Tray version for installation (uiAccess=true): can send input to elevated windows.
 rem Windows starts a uiAccess program only if it is signed by a trusted certificate and placed in a secure
-rem location such as Program Files, so this one cannot run from the build folder. Use install\install.ps1.
+rem location such as Program Files, so this one cannot run from the build folder. Use the installer (installer\) or tools\manual-install\install.ps1.
 if not exist "%OUT%\install" mkdir "%OUT%\install"
 link /nologo /SUBSYSTEM:WINDOWS /MANIFEST:EMBED /MANIFESTUAC:"level='asInvoker' uiAccess='true'" ^
   /OUT:"%OUT%\install\mtpagent.exe" "%OUT%\tray\*.obj" "%OUT%\mtpagent.res" ^

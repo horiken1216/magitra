@@ -24,7 +24,7 @@ PnpLockdown = 1
 ; PID 0265: Lightning Magic Trackpad (2015 "Magic Trackpad 2" and the 2021 3rd generation). Verified on the 3rd generation.
 %MtpUsb.DeviceDesc% = MtpUsb_Install, USB\VID_05AC&PID_0265&MI_01
 ; PID 0324: USB-C Magic Trackpad (4th generation). NOT verified on hardware: assumes the multitouch
-; interface is also MI_01 with the same reports as PID 0265 (see docs/INSTALL-USB.md "Supported models").
+; interface is also MI_01 with the same reports as PID 0265 (see docs/INSTALL.md, supported models).
 %MtpUsb.DeviceDesc% = MtpUsb_Install, USB\VID_05AC&PID_0324&MI_01
 
 [MtpUsb_Install]
