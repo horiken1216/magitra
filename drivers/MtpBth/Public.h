@@ -3,7 +3,12 @@
  *
  * 生フレーム: デバイスインターフェイス GUID_DEVINTERFACE_MTP_RAW を開き ReadFile する。
  *   1 回の ReadFile で 1 レポート（先頭が Report ID 0x31。HIDP ヘッダー 0xA1 は除去済み）を返す。
- *   読み取り要求がないときに届いたレポートは捨て、FramesDropped に数える。
+ *   読み取り要求がないときに届いたレポートは、MTP_RX_SLOTS 件までドライバーがためておき、次の ReadFile で渡す。
+ *   ためきれなくなったら古いものから捨て、FramesDropped に数える。
+ *
+ * レポートの送信: MTP_IOCTL_SET_REPORT（書き込みの権限で開いたハンドルが要る）。
+ *   入力バッファ = 送り方（MTP_SEND_* の 1 バイト）+ Report ID から始まるレポート（最大 MTP_SET_REPORT_MAX バイト）。
+ *   接続していなければ ERROR_DEVICE_NOT_CONNECTED（STATUS_DEVICE_NOT_CONNECTED）。
  */
 #pragma once
 
@@ -14,6 +19,12 @@ DEFINE_GUID(GUID_DEVINTERFACE_MTP_RAW,
     0x7f1c3a52, 0x5b0e, 0x4d7a, 0x9c, 0x41, 0x2e, 0x83, 0x6a, 0x10, 0xd5, 0x9b);
 
 #define MTP_IOCTL_GET_STATUS CTL_CODE(FILE_DEVICE_UNKNOWN, 0x801, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#define MTP_IOCTL_SET_REPORT CTL_CODE(FILE_DEVICE_UNKNOWN, 0x802, METHOD_BUFFERED, FILE_WRITE_ACCESS)
+
+#define MTP_SEND_INTERRUPT_OUTPUT 1  /* 割り込みチャネルに DATA(Output)（HIDP 0xA2）。応答はない */
+#define MTP_SEND_CONTROL_OUTPUT   2  /* 制御チャネルに SET_REPORT(Output)（HIDP 0x52）。HANDSHAKE を待つ */
+#define MTP_SEND_CONTROL_FEATURE  3  /* 制御チャネルに SET_REPORT(Feature)（HIDP 0x53）。HANDSHAKE を待つ */
+#define MTP_SET_REPORT_MAX        64
 
 typedef enum _MTP_LINK_STATE {
     MtpLinkIdle = 0,
@@ -31,4 +42,6 @@ typedef struct _MTP_STATUS_INFO {
     ULONG  FramesDelivered;    /* ReadFile へ渡した件数 */
     ULONG  FramesDropped;      /* 読み取り要求がなく捨てた件数 */
     ULONGLONG RemoteAddress;   /* BD_ADDR */
+    ULONG  SetReportHandshake; /* 直近の MTP_IOCTL_SET_REPORT への HANDSHAKE（0 = 成功、0xFFFFFFFF = 未受信） */
+    ULONG  ReportsSent;        /* MTP_IOCTL_SET_REPORT で送れた件数 */
 } MTP_STATUS_INFO, *PMTP_STATUS_INFO;

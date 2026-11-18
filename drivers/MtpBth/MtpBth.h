@@ -25,9 +25,13 @@
 #define MTP_READER_COUNT      2
 #define MTP_READ_BUFFER_SIZE  672      /* L2CAP 既定 MTU */
 #define MTP_RECONNECT_SECONDS 3
+#define MTP_RX_SLOTS          8        /* 読み取り要求が来るまでためておく件数 */
+#define MTP_RX_SLOT_SIZE      160      /* 3 + 9×16 本ぶんより大きい */
 
 /* HIDP（Bluetooth HID のトランザクション）ヘッダー */
 #define HIDP_SET_REPORT_FEATURE 0x53   /* SET_REPORT(0x5) | Feature(0x3) */
+#define HIDP_SET_REPORT_OUTPUT  0x52   /* SET_REPORT(0x5) | Output(0x2) */
+#define HIDP_DATA_OUTPUT        0xA2   /* DATA(0xA) | Output(0x2) */
 #define HIDP_DATA_INPUT         0xA1   /* DATA(0xA) | Input(0x1) */
 #define HIDP_HANDSHAKE_MASK     0xF0
 #define HIDP_HANDSHAKE          0x00
@@ -48,6 +52,7 @@ struct _DEVICE_CONTEXT {
     WDFQUEUE        ReadQueue;       /* 手動キュー。ReadFile の要求をためる */
     WDFTIMER        ReconnectTimer;  /* パッシブレベル */
     WDFSPINLOCK     Lock;
+    WDFWAITLOCK     ChannelLock;     /* 接続・切断・レポート送信を 1 つずつにする（パッシブレベル） */
 
     BTH_PROFILE_DRIVER_INTERFACE Profile;
     BOOLEAN         ProfileAcquired;
@@ -63,6 +68,12 @@ struct _DEVICE_CONTEXT {
     volatile LONG   Active;          /* D0 にいる間だけ 1。0 なら再接続を予約しない */
 
     MTP_STATUS_INFO Status;          /* Lock で保護 */
+
+    /* 読み取り要求がない間に届いたレポート（Lock で保護）。RxHead から RxCount 件 */
+    UCHAR           RxData[MTP_RX_SLOTS][MTP_RX_SLOT_SIZE];
+    USHORT          RxLength[MTP_RX_SLOTS];
+    ULONG           RxHead;
+    ULONG           RxCount;
 };
 
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(DEVICE_CONTEXT, MtpGetContext)
@@ -84,3 +95,6 @@ _IRQL_requires_(PASSIVE_LEVEL) NTSTATUS MtpQueryRemoteAddress(_In_ PDEVICE_CONTE
 _IRQL_requires_(PASSIVE_LEVEL) NTSTATUS MtpConnect(_In_ PDEVICE_CONTEXT Ctx);
 _IRQL_requires_(PASSIVE_LEVEL) VOID MtpDisconnect(_In_ PDEVICE_CONTEXT Ctx);
 _IRQL_requires_max_(DISPATCH_LEVEL) VOID MtpScheduleReconnect(_In_ PDEVICE_CONTEXT Ctx, _In_ NTSTATUS Reason);
+_IRQL_requires_max_(DISPATCH_LEVEL) VOID MtpHandleRead(_In_ PDEVICE_CONTEXT Ctx, _In_ WDFREQUEST Request);
+_IRQL_requires_(PASSIVE_LEVEL) NTSTATUS MtpSendReport(_In_ PDEVICE_CONTEXT Ctx, _In_ ULONG Method,
+    _In_reads_bytes_(Length) const UCHAR *Report, _In_ ULONG Length);

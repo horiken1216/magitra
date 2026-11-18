@@ -197,6 +197,7 @@ int main(int argc, char **argv)
     int haveLast = 0;
     int exitCode = 0;
 
+    SetConsoleOutputCP(CP_UTF8); /* 文字列は UTF-8（/utf-8）。コンソールが CP932 のままだと化ける */
     ParseOptions(argc, argv, &opt);
     MtpHapticOutInit(&g_haptic);
     memset(&stats, 0, sizeof(stats));
@@ -211,7 +212,7 @@ int main(int argc, char **argv)
     ds = MtpDeviceOpen(&dev, &err);
     if (ds != MTP_DEVICE_OK) {
         if (ds == MTP_DEVICE_NOT_FOUND) {
-            printf("MtpUsb (WinUSB) が見つかりません。drivers/MtpUsb/MtpUsb.inf を導入し、USB で接続してください。\n");
+            printf("トラックパッドが見つかりません。USB で接続するか（MtpUsb）、Bluetooth なら MtpBth を入れてください。\n");
         } else {
             printf("デバイスを開けませんでした（状態 %d、エラー %lu）。タスクトレイ版の mtpagent が動いていないか確認してください。\n",
                 (int)ds, err);

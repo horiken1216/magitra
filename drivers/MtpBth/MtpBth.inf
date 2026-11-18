@@ -39,6 +39,13 @@ CopyFiles = MtpBth_CopyFiles
 [MtpBth_CopyFiles]
 MtpBth.sys
 
+[MtpBth_Device.NT.HW]
+AddReg = MtpBth_Security_AddReg
+
+[MtpBth_Security_AddReg]
+; SYSTEM と Administrators は全権、対話ログオンのユーザー（常駐アプリ）は読み書き
+HKR,,Security,,"D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;IU)"
+
 [MtpBth_Device.NT.Services]
 AddService = MtpBth, 0x00000002, MtpBth_Service
 

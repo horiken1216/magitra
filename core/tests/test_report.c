@@ -216,6 +216,32 @@ static void test_actuator_reports(void)
     CHECK(MtpBuildActuatorReport(&h, buf, sizeof(buf) - 1, NULL) == MTP_ERR_ARG);
 }
 
+static void test_actuator_reports_bt(void)
+{
+    static const uint8_t baseline[MTP_ACTUATOR_BT_REPORT_LENGTH] = {
+        0xF2, 0x53, 0x01, 0x15, 0x78, 0x02, 0x00, 0x24, 0x30, 0x06, 0x01, 0x00, 0x18, 0x48, 0x12
+    };
+    uint8_t buf[MTP_ACTUATOR_BT_REPORT_LENGTH];
+    MTP_HAPTIC h = MTP_HAPTIC_BASELINE;
+    int clamped = -1;
+
+    CHECK(MtpBuildActuatorReportBt(&h, buf, sizeof(buf), &clamped) == MTP_OK);
+    CHECK(memcmp(buf, baseline, sizeof(baseline)) == 0);
+    CHECK(clamped == 0);
+    CHECK(buf[0] == MTP_ACTUATOR_BT_REPORT_ID);
+
+    h.strength = 0x30; h.sharpness = 0x20; h.depth = 0x40;
+    CHECK(MtpBuildActuatorReportBt(&h, buf, sizeof(buf), NULL) == MTP_OK);
+    CHECK(buf[3] == 0x30 && buf[6] == 0x20 && buf[11] == 0x40);
+
+    h.strength = 0xFF; h.sharpness = 0x21; h.depth = 0x41;
+    CHECK(MtpBuildActuatorReportBt(&h, buf, sizeof(buf), &clamped) == MTP_OK && clamped == 1);
+    CHECK(buf[3] == MTP_ACTUATOR_STRENGTH_MAX && buf[6] == MTP_ACTUATOR_SHARPNESS_MAX && buf[11] == MTP_ACTUATOR_DEPTH_MAX);
+
+    CHECK(MtpBuildActuatorReportBt(&h, buf, sizeof(buf) - 1, NULL) == MTP_ERR_ARG);
+    CHECK(MtpBuildActuatorReportBt(NULL, buf, sizeof(buf), NULL) == MTP_ERR_ARG);
+}
+
 int main(void)
 {
     test_bt_two_fingers();
@@ -226,6 +252,7 @@ int main(void)
     test_truncation();
     test_enable_reports();
     test_actuator_reports();
+    test_actuator_reports_bt();
     printf("%d checks, %d failed\n", g_checks, g_failed);
     return g_failed == 0 ? 0 : 1;
 }

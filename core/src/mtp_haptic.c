@@ -46,3 +46,34 @@ MTP_STATUS MtpBuildActuatorReport(const MTP_HAPTIC *haptic, uint8_t *buffer, siz
     }
     return MTP_OK;
 }
+
+/*
+ * Bluetooth 版（MagicTrackpad2ForWindows PR #63）:
+ *   idx:  0  1  2  3  4  5  6  7  8  9 10 11 12 13 14
+ *         F2 53 01 s0 78 02 s1 24 30 06 01 s2 18 48 12
+ */
+static const uint8_t kTemplateBt[MTP_ACTUATOR_BT_REPORT_LENGTH] = {
+    0xF2, 0x53, 0x01, 0x15, 0x78, 0x02, 0x00, 0x24, 0x30, 0x06, 0x01, 0x00, 0x18, 0x48, 0x12
+};
+
+MTP_STATUS MtpBuildActuatorReportBt(const MTP_HAPTIC *haptic, uint8_t *buffer, size_t length, int *clamped)
+{
+    size_t i;
+    int wasClamped = 0;
+
+    if (haptic == NULL || buffer == NULL || length < MTP_ACTUATOR_BT_REPORT_LENGTH) {
+        return MTP_ERR_ARG;
+    }
+    for (i = 0; i < MTP_ACTUATOR_BT_REPORT_LENGTH; i++) {
+        buffer[i] = kTemplateBt[i];
+    }
+    /* USB 版より Report ID の 1 バイトぶん後ろにずれる */
+    buffer[IDX_STRENGTH + 1] = Clamp(haptic->strength, MTP_ACTUATOR_STRENGTH_MAX, &wasClamped);
+    buffer[IDX_SHARPNESS + 1] = Clamp(haptic->sharpness, MTP_ACTUATOR_SHARPNESS_MAX, &wasClamped);
+    buffer[IDX_DEPTH + 1] = Clamp(haptic->depth, MTP_ACTUATOR_DEPTH_MAX, &wasClamped);
+
+    if (clamped != NULL) {
+        *clamped = wasClamped;
+    }
+    return MTP_OK;
+}

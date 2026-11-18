@@ -140,6 +140,15 @@ typedef struct MTP_HAPTIC {
  */
 MTP_STATUS MtpBuildActuatorReport(const MTP_HAPTIC *haptic, uint8_t *buffer, size_t length, int *clamped);
 
+/*
+ * Bluetooth 用の振動レポート（先頭が Report ID 0xF2、全 15 バイト）を組み立てる。buffer は MTP_ACTUATOR_BT_REPORT_LENGTH バイト以上。
+ * テンプレートは MagicTrackpad2ForWindows PR #63 の BT 版（F2 53 01 s0 78 02 s1 24 30 06 01 s2 18 48 12）。
+ * 上限と丸めは USB 版と同じ。HID のどの種類（出力・フィーチャー）で送ると鳴るかは drivers/MtpBth 側で選ぶ。
+ */
+#define MTP_ACTUATOR_BT_REPORT_ID     0xF2
+#define MTP_ACTUATOR_BT_REPORT_LENGTH 15
+MTP_STATUS MtpBuildActuatorReportBt(const MTP_HAPTIC *haptic, uint8_t *buffer, size_t length, int *clamped);
+
 #ifdef __cplusplus
 }
 #endif

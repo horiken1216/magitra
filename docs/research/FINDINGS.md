@@ -231,3 +231,45 @@ USB Composite Device（`USB\VID_05AC&PID_0265`）の下に 4 インターフェ�
 - レポート ID 1 つにつき宣言できる長さは 1 つで、トラックパッドは指の本数で長さを変える（3 + 9×本数）。
   そのため、この方法では複数の指を同時に受け取れない。Bluetooth でジェスチャーまで扱うには、カーネルドライバーか、
   専用の USB Bluetooth ドングルを WinUSB で直接扱うユーザーモードの Bluetooth スタック（Google Bumble など）が要る
+
+## Bluetooth: MtpBth スパイクドライバーの実機確認（2026-11-18）
+
+テスト署名モード（Secure Boot オフ、`bcdedit /set testsigning on`）で、`drivers\spike.ps1 install` により MtpBth を
+Magic Trackpad（Lightning、PID 0265）の BTHENUM HID PDO に当て、`mtpdump --hex` で確かめた。**指の本数によらず、0x31 が全部届いた。**
+
+- `link=connected last=0x00000000 attempts=1 handshake=0x0`。HID の L2CAP 通信路（PSM 0x11/0x13）を 1 回で開けて、
+  マルチタッチへの切り替え（SET_REPORT Feature `F1 02 01`）も受け入れられた
+- メモリ整合性（HVCI）がオンのままでも、ドライバーは読み込まれた
+- 入力 0x31 は 3 + 9×本数 バイト（ID を含めると 13・22 バイト）。core の `MtpParseReport(MTP_TRANSPORT_BT, …)` で
+  そのまま解析でき、指の ID・座標・圧力・状態（st 0→1→2→3→0）が USB と同じ形で取れた。1 件ごとに 2〜3 バイト目が 0x58 増える
+- 押し込み（クリック）は見出しの 2 バイト目の最下位ビット（`btn=1`）に出る。Force Touch に使う圧力（p）も届いた
+- `recv=743 delivered=602 dropped=141`: 読み取り要求が待っていない間に届いたレポートは捨てている（mtpdump の起動前の分を含む）。
+  常駐アプリから使うときは、読み取りを複数重ねるか、ドライバーに小さな受け取り用の待ち行列を持たせる
+- 入れている間、トラックパッドは Windows のマウスとして動かない（hidbth と入れ替わるため）
+
+## Bluetooth: MtpBth での振動（2026-11-18）
+
+MtpBth に `MTP_IOCTL_SET_REPORT` を足し、`mtpdump --haptic` で Bluetooth 用の振動レポート
+（`F2 53 01 s0 78 02 s1 24 30 06 01 s2 18 48 12`、強さ 0x30）を 3 通りの送り方で送った（PID 0265）。
+**振動したのは割り込みチャネルの DATA(Output)（HIDP ヘッダー 0xA2）だけ。**
+
+| 送り方 | 結果 |
+|---|---|
+| 制御チャネル SET_REPORT(Feature)（0x53） | HANDSHAKE 成功（0x0）だが振動しない |
+| 制御チャネル SET_REPORT(Output)（0x52） | HANDSHAKE 0x2（ERR_INVALID_REPORT_ID）で拒否 |
+| 割り込みチャネル DATA(Output)（0xA2） | 振動した（割り込みチャネルには応答がない） |
+
+- 常駐アプリ（`agent/mtp_haptic_out.c`）は割り込みチャネルに決め打ちした。HANDSHAKE が成功でも振動するとは限らないので、
+  応答で送り方を選ぶ方法は使えない
+- 管理者権限なしの mtpdump で MtpBth を読み書きで開けた（INF の `Security`（IU に GRGW）が効いている）
+- 再接続直後は `last=0xC00000B5`（STATUS_IO_TIMEOUT）で `connecting` が続いた。トラックパッドをクリックして起こすと、
+  3 秒おきのつなぎ直しで `connected` になった（attempts=8）
+
+## Bluetooth: 常駐アプリ（mtpagent-cli）での確認（2026-11-18）
+
+MtpBth を入れた状態で、管理者権限なしの `mtpagent-cli.exe` を動かした（PID 0265）。
+USB が見つからないので MtpBth から読み、3・4 本指のスワイプ（上・下・左・右）が全部判定され、割り当てた操作が実行された。
+
+- 終了時の集計: 読み取り 903（フレーム 903、その他 0）、タイムアウト 347、イベント 498
+- 触れている間のフレーム間隔: 平均 11.3 ms（約 88 フレーム/秒）、最大 215.0 ms
+- ポインターの移動・クリック・2 本指のスクロール・ピンチ・Force Touch の振動も、使って問題なく動いた（利用者の確認）

@@ -1,5 +1,5 @@
 /*
- * mtp_haptic_out.h - USB 接続の Actuator（MI_02、標準 HID のまま）に振動レポートを書く
+ * mtp_haptic_out.h - 振動レポートを送る（USB は Actuator（MI_02、標準 HID のまま）、Bluetooth は MtpBth）
  *
  * レポートの中身は core の MtpBuildActuatorReport が作る（上限付き）。
  * 速すぎる書き込みは拒否されるという報告があるため、MTP_ACTUATOR_MIN_INTERVAL_MS より短い間隔の要求は捨てる。
@@ -17,6 +17,7 @@ extern "C" {
 
 typedef struct MTP_HAPTIC_OUT {
     HANDLE file;           /* MI_02 の HID。開けていなければ INVALID_HANDLE_VALUE */
+    HANDLE bt;             /* MtpBth（Bluetooth）。開けていなければ INVALID_HANDLE_VALUE */
     ULONGLONG last_tick;   /* 最後に書いた時刻（GetTickCount64） */
 } MTP_HAPTIC_OUT;
 

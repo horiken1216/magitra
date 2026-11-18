@@ -5,6 +5,7 @@
  *   mtpdump            状態を表示してからフレームを表示し続ける（Ctrl+C で終了）
  *   mtpdump --status   状態だけ表示する
  *   mtpdump --hex      解析結果に加えて生バイト列も表示する
+ *   mtpdump --haptic   振動レポートを 3 種類の送り方で 1 回ずつ（3 秒おきに）送り、結果を表示する
  */
 #include <windows.h>
 #include <winioctl.h>
@@ -38,7 +39,44 @@ static HANDLE OpenMtpDevice(void)
     if (cr != CR_SUCCESS || list[0] == L'\0') {
         return INVALID_HANDLE_VALUE;
     }
-    return CreateFileW(list, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
+    return CreateFileW(list, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
+}
+
+/* どの送り方で鳴るかを確かめる。番号と名前を表示してから送るので、鳴ったときの番号を控えてもらう */
+static int TestHaptic(HANDLE h)
+{
+    static const struct { UCHAR method; const char *name; } kMethods[] = {
+        { MTP_SEND_CONTROL_FEATURE, "control SET_REPORT(Feature)" },
+        { MTP_SEND_CONTROL_OUTPUT, "control SET_REPORT(Output)" },
+        { MTP_SEND_INTERRUPT_OUTPUT, "interrupt DATA(Output)" },
+    };
+    MTP_HAPTIC haptic = MTP_HAPTIC_BASELINE;
+    uint8_t report[MTP_ACTUATOR_BT_REPORT_LENGTH];
+    UCHAR in[1 + MTP_ACTUATOR_BT_REPORT_LENGTH];
+    MTP_STATUS_INFO st;
+    DWORD got;
+    size_t i;
+
+    haptic.strength = 0x30; /* 体感しやすいように上限まで上げる（上限は core が丸める） */
+    MtpBuildActuatorReportBt(&haptic, report, sizeof(report), NULL);
+    memcpy(in + 1, report, sizeof(report));
+    for (i = 0; i < ARRAYSIZE(kMethods); i++) {
+        BOOL ok;
+        DWORD err;
+        printf("[%zu] %s ... ", i + 1, kMethods[i].name);
+        fflush(stdout);
+        in[0] = kMethods[i].method;
+        ok = DeviceIoControl(h, MTP_IOCTL_SET_REPORT, in, sizeof(in), NULL, 0, &got, NULL);
+        err = ok ? 0 : GetLastError();
+        got = 0;
+        if (DeviceIoControl(h, MTP_IOCTL_GET_STATUS, NULL, 0, &st, sizeof(st), &got, NULL) && got == sizeof(st)) {
+            printf("%s (err=%lu, handshake=0x%lX)\n", ok ? "sent" : "failed", err, st.SetReportHandshake);
+        } else {
+            printf("%s (err=%lu)\n", ok ? "sent" : "failed", err);
+        }
+        Sleep(3000);
+    }
+    return 0;
 }
 
 static BOOL PrintStatus(HANDLE h)
@@ -60,12 +98,14 @@ int main(int argc, char **argv)
 {
     BOOL statusOnly = FALSE;
     BOOL hex = FALSE;
+    BOOL haptic = FALSE;
     HANDLE h;
     int i;
 
     for (i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--status") == 0) statusOnly = TRUE;
         else if (strcmp(argv[i], "--hex") == 0) hex = TRUE;
+        else if (strcmp(argv[i], "--haptic") == 0) haptic = TRUE;
     }
 
     h = OpenMtpDevice();
@@ -73,9 +113,14 @@ int main(int argc, char **argv)
         printf("MtpBth device interface not found (driver not installed or device not started)\n");
         return 2;
     }
-    if (!PrintStatus(h) || statusOnly) {
+    if (!PrintStatus(h)) {
         CloseHandle(h);
-        return statusOnly ? 0 : 1;
+        return 1;
+    }
+    if (statusOnly || haptic) {
+        i = haptic ? TestHaptic(h) : 0;
+        CloseHandle(h);
+        return i;
     }
 
     for (;;) {

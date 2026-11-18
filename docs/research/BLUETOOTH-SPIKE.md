@@ -12,6 +12,24 @@ MtpBth は Magic Trackpad（Bluetooth）の生フレームを取り出して、�
 
 以下、2〜6 は**管理者権限の PowerShell** で、リポジトリのルートから実行する。
 
+2〜4 と 6 は、`drivers\spike.ps1` でまとめて行える（テスト署名モードが有効なときだけ動く。証明書は `LocalMachine\My` に作る）。
+
+```powershell
+.\drivers\spike.ps1 install     # 署名・カタログ・証明書の信頼・トラックパッドへの適用
+.\drivers\spike.ps1 uninstall   # ドライバーと証明書を取り除く
+```
+
+## 0. Secure Boot をオフにする（初回のみ・セキュリティ設定の変更）
+
+Secure Boot がオンのままだと、`bcdedit /set testsigning on` は「セキュア ブート ポリシーによって保護されている」というエラーになる。
+
+1. `manage-bde -protectors -get C:` で、BitLocker の回復キー（数字のパスワード）があれば控える。デバイスの暗号化の場合は https://account.microsoft.com/devices/recoverykey でも確認できる
+2. 設定 → システム → 回復 →「PC の起動をカスタマイズする」の「今すぐ再起動」→ トラブルシューティング → 詳細オプション →「UEFI ファームウェアの設定」で UEFI の設定画面に入る
+3. Security（または Boot）にある **Secure Boot** を **Disabled** にして、保存して再起動する（項目の場所は PC のメーカーで異なる）
+4. `msinfo32` の「セキュア ブートの状態」が「オフ」になっていれば完了
+
+カーネル ドライバーが「メモリ整合性」（HVCI）に合わず読み込まれない場合は、Windows セキュリティ → デバイス セキュリティ → コア分離 で、メモリ整合性をオフにする（再起動が要る）。
+
 ## 1. ビルド
 
 ```bat

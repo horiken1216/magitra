@@ -96,6 +96,7 @@ MtpEvtDeviceAdd(_In_ WDFDRIVER Driver, _Inout_ PWDFDEVICE_INIT DeviceInit)
     ctx->Device = device;
     ctx->IoTarget = WdfDeviceGetIoTarget(device);
     ctx->Status.EnableHandshake = 0xFFFFFFFF;
+    ctx->Status.SetReportHandshake = 0xFFFFFFFF;
     KeInitializeEvent(&ctx->ReadersIdle, NotificationEvent, TRUE);
 
     WDF_OBJECT_ATTRIBUTES_INIT(&attributes);
@@ -105,11 +106,20 @@ MtpEvtDeviceAdd(_In_ WDFDRIVER Driver, _Inout_ PWDFDEVICE_INIT DeviceInit)
         return status;
     }
 
-    /* 既定キュー: 状態取得 IOCTL と ReadFile の受付 */
+    WDF_OBJECT_ATTRIBUTES_INIT(&attributes);
+    attributes.ParentObject = device;
+    status = WdfWaitLockCreate(&attributes, &ctx->ChannelLock);
+    if (!NT_SUCCESS(status)) {
+        return status;
+    }
+
+    /* 既定キュー: IOCTL と ReadFile の受付。レポート送信は L2CAP に同期で送るので、パッシブレベルで呼ばせる */
     WDF_IO_QUEUE_CONFIG_INIT_DEFAULT_QUEUE(&queueConfig, WdfIoQueueDispatchParallel);
     queueConfig.EvtIoRead = MtpEvtIoRead;
     queueConfig.EvtIoDeviceControl = MtpEvtIoDeviceControl;
-    status = WdfIoQueueCreate(device, &queueConfig, WDF_NO_OBJECT_ATTRIBUTES, WDF_NO_HANDLE);
+    WDF_OBJECT_ATTRIBUTES_INIT(&attributes);
+    attributes.ExecutionLevel = WdfExecutionLevelPassive;
+    status = WdfIoQueueCreate(device, &queueConfig, &attributes, WDF_NO_HANDLE);
     if (!NT_SUCCESS(status)) {
         return status;
     }
@@ -215,7 +225,9 @@ MtpEvtD0Exit(_In_ WDFDEVICE Device, _In_ WDF_POWER_DEVICE_STATE TargetState)
 
     InterlockedExchange(&ctx->Active, 0);
     WdfTimerStop(ctx->ReconnectTimer, TRUE);
+    WdfWaitLockAcquire(ctx->ChannelLock, NULL);
     MtpDisconnect(ctx);
+    WdfWaitLockRelease(ctx->ChannelLock);
     return STATUS_SUCCESS;
 }
 
@@ -228,7 +240,9 @@ MtpEvtReconnectTimer(_In_ WDFTIMER Timer)
     if (InterlockedCompareExchange(&ctx->Active, 0, 0) == 0) {
         return;
     }
+    WdfWaitLockAcquire(ctx->ChannelLock, NULL);
     status = MtpConnect(ctx);
+    WdfWaitLockRelease(ctx->ChannelLock);
     if (!NT_SUCCESS(status)) {
         MtpScheduleReconnect(ctx, status);
     }
@@ -238,16 +252,12 @@ VOID
 MtpEvtIoRead(_In_ WDFQUEUE Queue, _In_ WDFREQUEST Request, _In_ size_t Length)
 {
     PDEVICE_CONTEXT ctx = MtpGetContext(WdfIoQueueGetDevice(Queue));
-    NTSTATUS status;
 
     if (Length == 0) {
         WdfRequestComplete(Request, STATUS_INVALID_BUFFER_SIZE);
         return;
     }
-    status = WdfRequestForwardToIoQueue(Request, ctx->ReadQueue);
-    if (!NT_SUCCESS(status)) {
-        WdfRequestComplete(Request, status);
-    }
+    MtpHandleRead(ctx, Request);
 }
 
 VOID
@@ -261,6 +271,17 @@ MtpEvtIoDeviceControl(_In_ WDFQUEUE Queue, _In_ WDFREQUEST Request, _In_ size_t 
     UNREFERENCED_PARAMETER(OutputBufferLength);
     UNREFERENCED_PARAMETER(InputBufferLength);
 
+    if (IoControlCode == MTP_IOCTL_SET_REPORT) {
+        PUCHAR in;
+        size_t inLength;
+        status = WdfRequestRetrieveInputBuffer(Request, 2, (PVOID *)&in, &inLength);
+        if (NT_SUCCESS(status)) {
+            status = inLength > MTP_SET_REPORT_MAX + 1 ? STATUS_INVALID_PARAMETER
+                : MtpSendReport(ctx, in[0], in + 1, (ULONG)(inLength - 1));
+        }
+        WdfRequestComplete(Request, status);
+        return;
+    }
     if (IoControlCode != MTP_IOCTL_GET_STATUS) {
         WdfRequestComplete(Request, STATUS_INVALID_DEVICE_REQUEST);
         return;

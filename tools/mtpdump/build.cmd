@@ -13,4 +13,4 @@ if not defined VSDIR (
 )
 call "%VSDIR%\VC\Auxiliary\Build\vcvars64.bat" >nul 2>&1 || exit /b 2
 
-cl /nologo /utf-8 /W4 /WX /I "%ROOT%\core\include" "%~dp0mtpdump.c" "%ROOT%\core\src\mtp_report.c" /Fo"%OUT%\\" /Fe"%OUT%\mtpdump.exe" /link cfgmgr32.lib
+cl /nologo /utf-8 /W4 /WX /I "%ROOT%\core\include" "%~dp0mtpdump.c" "%ROOT%\core\src\mtp_report.c" "%ROOT%\core\src\mtp_haptic.c" /Fo"%OUT%\\" /Fe"%OUT%\mtpdump.exe" /link cfgmgr32.lib

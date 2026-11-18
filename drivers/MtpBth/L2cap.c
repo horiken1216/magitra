@@ -251,39 +251,153 @@ MtpSubmitReader(_In_ PMTP_READER Reader)
     return STATUS_SUCCESS;
 }
 
-/* 割り込みチャネルの DATA を 1 件ユーザーモードへ渡す */
+/* 読み取り要求をレポート 1 件で完了する */
 _IRQL_requires_max_(DISPATCH_LEVEL)
 static VOID
-MtpDeliverFrame(_In_ PDEVICE_CONTEXT Ctx, _In_reads_bytes_(Length) const UCHAR *Payload, _In_ ULONG Length)
+MtpCompleteRead(_In_ PDEVICE_CONTEXT Ctx, _In_ WDFREQUEST Read, _In_reads_bytes_(Length) const UCHAR *Data,
+    _In_ ULONG Length)
 {
-    WDFREQUEST read;
     PVOID buffer;
     size_t capacity;
     NTSTATUS status;
 
-    status = WdfIoQueueRetrieveNextRequest(Ctx->ReadQueue, &read);
+    status = WdfRequestRetrieveOutputBuffer(Read, 1, &buffer, &capacity);
     if (!NT_SUCCESS(status)) {
-        WdfSpinLockAcquire(Ctx->Lock);
-        Ctx->Status.FramesDropped++;
-        WdfSpinLockRelease(Ctx->Lock);
-        return;
-    }
-
-    status = WdfRequestRetrieveOutputBuffer(read, 1, &buffer, &capacity);
-    if (!NT_SUCCESS(status)) {
-        WdfRequestComplete(read, status);
+        WdfRequestComplete(Read, status);
         return;
     }
     if (capacity < Length) {
-        WdfRequestComplete(read, STATUS_BUFFER_TOO_SMALL);
+        WdfRequestComplete(Read, STATUS_BUFFER_TOO_SMALL);
         return;
     }
-    RtlCopyMemory(buffer, Payload, Length);
+    RtlCopyMemory(buffer, Data, Length);
 
     WdfSpinLockAcquire(Ctx->Lock);
     Ctx->Status.FramesDelivered++;
     WdfSpinLockRelease(Ctx->Lock);
-    WdfRequestCompleteWithInformation(read, STATUS_SUCCESS, Length);
+    WdfRequestCompleteWithInformation(Read, STATUS_SUCCESS, Length);
+}
+
+/* 割り込みチャネルの DATA を 1 件ユーザーモードへ渡す。待っている読み取り要求がなければためておく */
+_IRQL_requires_max_(DISPATCH_LEVEL)
+static VOID
+MtpDeliverFrame(_In_ PDEVICE_CONTEXT Ctx, _In_reads_bytes_(Length) const UCHAR *Payload, _In_ ULONG Length)
+{
+    WDFREQUEST read = NULL;
+    NTSTATUS status;
+    ULONG slot;
+
+    WdfSpinLockAcquire(Ctx->Lock);
+    if (Length > MTP_RX_SLOT_SIZE) {
+        Ctx->Status.FramesDropped++;
+        WdfSpinLockRelease(Ctx->Lock);
+        return;
+    }
+    /* 要求の取り出しと、ためる処理を同じロックの中で行う（MtpHandleRead と行き違いにならないようにする） */
+    status = WdfIoQueueRetrieveNextRequest(Ctx->ReadQueue, &read);
+    if (!NT_SUCCESS(status)) {
+        if (Ctx->RxCount == MTP_RX_SLOTS) {
+            Ctx->RxHead = (Ctx->RxHead + 1) % MTP_RX_SLOTS;
+            Ctx->RxCount--;
+            Ctx->Status.FramesDropped++;
+        }
+        slot = (Ctx->RxHead + Ctx->RxCount) % MTP_RX_SLOTS;
+        RtlCopyMemory(Ctx->RxData[slot], Payload, Length);
+        Ctx->RxLength[slot] = (USHORT)Length;
+        Ctx->RxCount++;
+        WdfSpinLockRelease(Ctx->Lock);
+        return;
+    }
+    WdfSpinLockRelease(Ctx->Lock);
+    MtpCompleteRead(Ctx, read, Payload, Length);
+}
+
+/* ReadFile の要求。ためてあるレポートがあればすぐに渡し、なければ届くまで手動キューで待たせる */
+_IRQL_requires_max_(DISPATCH_LEVEL)
+VOID
+MtpHandleRead(_In_ PDEVICE_CONTEXT Ctx, _In_ WDFREQUEST Request)
+{
+    UCHAR local[MTP_RX_SLOT_SIZE];
+    ULONG length = 0;
+    NTSTATUS status = STATUS_SUCCESS;
+
+    WdfSpinLockAcquire(Ctx->Lock);
+    if (Ctx->RxCount > 0) {
+        length = Ctx->RxLength[Ctx->RxHead];
+        RtlCopyMemory(local, Ctx->RxData[Ctx->RxHead], length);
+        Ctx->RxHead = (Ctx->RxHead + 1) % MTP_RX_SLOTS;
+        Ctx->RxCount--;
+    } else {
+        status = WdfRequestForwardToIoQueue(Request, Ctx->ReadQueue);
+    }
+    WdfSpinLockRelease(Ctx->Lock);
+
+    if (length > 0) {
+        MtpCompleteRead(Ctx, Request, local, length);
+    } else if (!NT_SUCCESS(status)) {
+        WdfRequestComplete(Request, status);
+    }
+}
+
+/* アプリからのレポート（振動など）を送る。ChannelLock で接続・切断と重ならないようにする */
+_IRQL_requires_(PASSIVE_LEVEL)
+NTSTATUS
+MtpSendReport(_In_ PDEVICE_CONTEXT Ctx, _In_ ULONG Method, _In_reads_bytes_(Length) const UCHAR *Report,
+    _In_ ULONG Length)
+{
+    UCHAR packet[MTP_SET_REPORT_MAX + 1];
+    UCHAR reply[16];
+    ULONG length;
+    UCHAR header;
+    BOOLEAN connected;
+    L2CAP_CHANNEL_HANDLE channel;
+    NTSTATUS status;
+
+    if (Length < 1 || Length > MTP_SET_REPORT_MAX) {
+        return STATUS_INVALID_PARAMETER;
+    }
+    switch (Method) {
+    case MTP_SEND_INTERRUPT_OUTPUT: header = HIDP_DATA_OUTPUT; break;
+    case MTP_SEND_CONTROL_OUTPUT: header = HIDP_SET_REPORT_OUTPUT; break;
+    case MTP_SEND_CONTROL_FEATURE: header = HIDP_SET_REPORT_FEATURE; break;
+    default: return STATUS_INVALID_PARAMETER;
+    }
+    packet[0] = header;
+    RtlCopyMemory(packet + 1, Report, Length);
+
+    WdfWaitLockAcquire(Ctx->ChannelLock, NULL);
+    WdfSpinLockAcquire(Ctx->Lock);
+    connected = Ctx->Status.LinkState == MtpLinkConnected;
+    WdfSpinLockRelease(Ctx->Lock);
+    channel = Method == MTP_SEND_INTERRUPT_OUTPUT ? Ctx->InterruptChannel : Ctx->ControlChannel;
+    if (!connected || channel == NULL) {
+        status = STATUS_DEVICE_NOT_CONNECTED;
+        goto out;
+    }
+
+    length = Length + 1;
+    status = MtpAclSync(Ctx, channel, FALSE, packet, &length);
+    if (NT_SUCCESS(status) && Method != MTP_SEND_INTERRUPT_OUTPUT) {
+        RtlZeroMemory(reply, sizeof(reply));
+        length = sizeof(reply);
+        status = MtpAclSync(Ctx, Ctx->ControlChannel, TRUE, reply, &length);
+        if (NT_SUCCESS(status)) {
+            WdfSpinLockAcquire(Ctx->Lock);
+            Ctx->Status.SetReportHandshake = (length >= 1) ? reply[0] : 0xFFFFFFFF;
+            WdfSpinLockRelease(Ctx->Lock);
+            if (length < 1 || reply[0] != HIDP_HANDSHAKE) {
+                status = STATUS_DEVICE_PROTOCOL_ERROR;
+            }
+        }
+    }
+    if (NT_SUCCESS(status)) {
+        WdfSpinLockAcquire(Ctx->Lock);
+        Ctx->Status.ReportsSent++;
+        WdfSpinLockRelease(Ctx->Lock);
+    }
+out:
+    WdfWaitLockRelease(Ctx->ChannelLock);
+    return status;
 }
 
 VOID
@@ -357,6 +471,12 @@ MtpConnect(_In_ PDEVICE_CONTEXT Ctx)
     if (!NT_SUCCESS(status)) {
         goto fail;
     }
+
+    /* 前の接続でためた分は捨てる */
+    WdfSpinLockAcquire(Ctx->Lock);
+    Ctx->RxHead = 0;
+    Ctx->RxCount = 0;
+    WdfSpinLockRelease(Ctx->Lock);
 
     for (i = 0; i < MTP_READER_COUNT; i++) {
         status = MtpSubmitReader(MtpGetReaderContext(Ctx->Readers[i]));

@@ -120,7 +120,7 @@ static void ToggleSetting(int *field, const wchar_t *name)
 }
 
 /*
- * 読み取りスレッドが開いているデバイス。終了時にメインスレッドから WinUsb_AbortPipe で読み取りを中断するために共有する。
+ * 読み取りスレッドが開いているデバイス。終了時にメインスレッドから読み取りを中断する（MtpDeviceAbortRead）ために共有する。
  * 通常は 200ms のタイムアウトで読み取りが戻るが、戻らない状況があっても終了が待たされないようにする。
  */
 static CRITICAL_SECTION g_devLock;
@@ -144,8 +144,8 @@ static void CloseDevice(MTP_DEVICE *dev)
 static void AbortPendingRead(void)
 {
     EnterCriticalSection(&g_devLock);
-    if (g_openDevice != NULL && g_openDevice->usb != NULL) {
-        WinUsb_AbortPipe(g_openDevice->usb, g_openDevice->pipe);
+    if (g_openDevice != NULL) {
+        MtpDeviceAbortRead(g_openDevice);
     }
     LeaveCriticalSection(&g_devLock);
 }
@@ -451,7 +451,7 @@ static const wchar_t *StateText(void)
     }
     switch ((LINK_STATE)InterlockedCompareExchange(&g_state, 0, 0)) {
     case LINK_CONNECTED: return L"接続中";
-    case LINK_NOT_FOUND: return L"トラックパッドが見つかりません（USB 未接続か WinUSB 未導入）";
+    case LINK_NOT_FOUND: return L"トラックパッドが見つかりません（USB 未接続か、ドライバー未導入）";
     case LINK_OPEN_FAILED: return L"トラックパッドを開けません（mtpagent-cli など別のプログラムが使用中）";
     case LINK_DISCONNECTED: return L"切断されました。再接続を待っています";
     case LINK_RELEASED: return L"ロック中のため休止しています";
