@@ -8,6 +8,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Security.AccessControl;
 using System.Security.Cryptography.X509Certificates;
 using System.Security.Principal;
@@ -32,16 +33,18 @@ namespace Mtp
         readonly bool startWithUninstall;
         readonly string installedMode;   // null なら未導入
         readonly bool legacyCertExists;
+        readonly bool testSigning;       // Bluetooth（詳細設定）を選べるか
 
         // 選択
         RadioButton optUiAccess, optStandard, optUninstall;
-        CheckBox optLegacy, optLaunch, optService, optAutoStart;
+        CheckBox optLegacy, optLaunch, optService, optAutoStart, optBluetooth;
 
         public SetupWindow(bool uninstall)
         {
             startWithUninstall = uninstall;
             installedMode = ReadInstalledMode();
             legacyCertExists = LegacyCertificateExists();
+            testSigning = TestSigningEnabled();
 
             Title = "MAGITRA セットアップ";
             Width = 680;
@@ -90,6 +93,39 @@ namespace Mtp
             }
         }
 
+        // 前回の導入で Bluetooth（詳細設定）を選んだか（初めての導入では既定でオフ）
+        static bool ReadInstalledBluetooth()
+        {
+            using (RegistryKey key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\MAGITRA\Installer"))
+            {
+                if (key == null) return false;
+                object v = key.GetValue("Bluetooth");
+                return v is int && (int)v != 0;
+            }
+        }
+
+        [DllImport("ntdll.dll")]
+        static extern int NtQuerySystemInformation(int infoClass, byte[] buffer, int length, out int returned);
+
+        // 自己署名のカーネルドライバーが読み込まれる起動か（setup-core.ps1 の Test-TestSigning と同じ判定）。
+        // SystemCodeIntegrityInformation（103）: TESTSIGN（0x02）が立っている、または ENABLED（0x01）が落ちている
+        static bool TestSigningEnabled()
+        {
+            try
+            {
+                byte[] buf = new byte[8];
+                BitConverter.GetBytes(8).CopyTo(buf, 0);
+                int ret;
+                if (NtQuerySystemInformation(103, buf, buf.Length, out ret) != 0) return false;
+                uint options = BitConverter.ToUInt32(buf, 4);
+                return (options & 0x02) != 0 || (options & 0x01) == 0;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
         // setup-core.ps1 の Remove-LegacyCertificates が取り除くのと同じストアを見る
         static bool LegacyCertificateExists()
         {
@@ -97,7 +133,8 @@ namespace Mtp
             {
                 new KeyValuePair<StoreName, StoreLocation>(StoreName.Root, StoreLocation.LocalMachine),
                 new KeyValuePair<StoreName, StoreLocation>(StoreName.TrustedPublisher, StoreLocation.LocalMachine),
-                new KeyValuePair<StoreName, StoreLocation>(StoreName.My, StoreLocation.CurrentUser)
+                new KeyValuePair<StoreName, StoreLocation>(StoreName.My, StoreLocation.CurrentUser),
+                new KeyValuePair<StoreName, StoreLocation>(StoreName.My, StoreLocation.LocalMachine)
             };
             foreach (KeyValuePair<StoreName, StoreLocation> s in stores)
             {
@@ -242,6 +279,28 @@ namespace Mtp
             optAutoStart = new CheckBox { Content = "ログオンしたら常駐アプリを自動で起動する", IsChecked = true, Margin = new Thickness(0, 4, 0, 4) };
             p.Children.Add(optAutoStart);
 
+            p.Children.Add(new TextBlock { Text = "詳細設定", FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 14, 0, 2) });
+            optBluetooth = new CheckBox
+            {
+                Content = "Bluetooth 接続でも使う（テスト署名モードの PC のみ）",
+                IsChecked = testSigning && ReadInstalledBluetooth(),
+                IsEnabled = testSigning,
+                Margin = new Thickness(0, 4, 0, 0)
+            };
+            p.Children.Add(optBluetooth);
+            TextBlock bluetoothNote = new TextBlock
+            {
+                Text = testSigning
+                    ? "自作の Bluetooth ドライバー（MtpBth）を、その場限りの証明書で署名して入れます。Microsoft の署名がないため、"
+                        + "テスト署名モードでしか読み込まれません。ロック中も使うには、上の「ロック中とログオン前は…」もオンにしてください。"
+                    : "この PC はテスト署名モードで起動していないため選べません。テスト署名モードにするには Secure Boot をオフにする必要があり、"
+                        + "PC の安全性が下がります。切り替えは利用者が自分で行います（手順は README の Bluetooth の節）。",
+                TextWrapping = TextWrapping.Wrap,
+                Foreground = SubText,
+                Margin = new Thickness(24, 2, 0, 0)
+            };
+            p.Children.Add(bluetoothNote);
+
             // 取り除くときは導入用の選択肢は意味がないので、選べなくする（手作業の証明書の片付けは、取り除くときも行える）
             RoutedEventHandler syncOptions = delegate
             {
@@ -249,7 +308,9 @@ namespace Mtp
                 optService.IsEnabled = installing;
                 optLaunch.IsEnabled = installing;
                 optAutoStart.IsEnabled = installing;
+                optBluetooth.IsEnabled = installing && testSigning;
                 serviceNote.Opacity = installing ? 1.0 : 0.5;
+                bluetoothNote.Opacity = installing ? 1.0 : 0.5;
             };
             optUninstall.Checked += syncOptions;
             optUninstall.Unchecked += syncOptions;
@@ -297,6 +358,7 @@ namespace Mtp
         {
             bool uninstall = SelectedAction() == "Uninstall";
             bool uiAccess = SelectedMode() == "UIAccess";
+            bool bluetooth = optBluetooth.IsChecked == true;
             StackPanel p = new StackPanel();
             p.Children.Add(Heading(uninstall ? "取り除く内容の確認" : "この PC に加える変更の確認"));
             if (!uninstall)
@@ -315,6 +377,7 @@ namespace Mtp
             if (uninstall)
             {
                 Bullet(list, "Magic Trackpad の USB インターフェイス（MI_01）から WinUSB を外し、Windows 標準のドライバーに戻します。");
+                Bullet(list, "Bluetooth のドライバー（MtpBth）を入れていれば外し、Windows 標準のドライバー（HidBth）に戻します。");
                 Bullet(list, "インストーラーが登録した証明書の信頼を外します。");
                 Bullet(list, "ロック中の切り替えサービス（MagitraSwitch）を登録していれば、止めて削除します。");
                 Bullet(list, @"C:\Program Files\MAGITRA と、「アプリ」の一覧の登録を削除します。");
@@ -353,13 +416,28 @@ namespace Mtp
                 else
                 {
                     Section(list, "標準版では行わないこと");
-                    Bullet(list, "証明書をこの PC で信頼させる登録はしません（そのため、管理者権限のウィンドウでは操作できません）。");
+                    Bullet(list, bluetooth
+                        ? "常駐アプリには署名しません（そのため、管理者権限のウィンドウでは操作できません）。"
+                        : "証明書をこの PC で信頼させる登録はしません（そのため、管理者権限のウィンドウでは操作できません）。");
+                }
+                if (bluetooth)
+                {
+                    Section(list, "Bluetooth 接続（詳細設定）で行うこと");
+                    Bullet(list, "自作の Bluetooth ドライバー（MtpBth.sys）とそのカタログに、同じその場限りの証明書で署名します。");
+                    Bullet(list, "その証明書（公開鍵のみ）を、この PC の「信頼されたルート証明機関」と「信頼された発行元」に登録します。"
+                        + "自己署名のドライバーを確認の画面なしで入れるために必要です。", true);
+                    Bullet(list, "ペアリング済みの Bluetooth の Magic Trackpad に MtpBth を当てます。MtpBth が当たっている間は、常駐アプリが動いていないと"
+                        + " Bluetooth のトラックパッドは動きません。テスト署名モードをやめると MtpBth は読み込まれなくなるので、その前に取り除いてください。", true);
+                }
+                else
+                {
+                    Bullet(list, "Bluetooth のドライバー（MtpBth）は入れません（入っていれば外し、Windows 標準のドライバーに戻します）。");
                 }
             }
             if (optLegacy.IsChecked == true && optLegacy.Visibility == Visibility.Visible)
             {
                 Section(list, "片付け");
-                Bullet(list, "手作業の手順で作った証明書（MAGITRA Test Signing）を、信頼されたルートとユーザーの証明書ストアから取り除きます。");
+                Bullet(list, "手作業の手順で作った証明書（MAGITRA Test Signing）を、信頼されたルート・信頼された発行元と、ユーザーとこの PC の個人の証明書ストアから取り除きます（秘密鍵も消します）。");
             }
             p.Children.Add(list);
             p.Children.Add(Para("会社の PC では、証明書やドライバーの変更が情報システム部門の規定で許されているか、先に確認してください。"));
@@ -377,8 +455,10 @@ namespace Mtp
             {
                 bool launch = optLaunch.IsChecked == true, legacy = optLegacy.IsChecked == true, service = optService.IsChecked == true;
                 bool autoStart = optAutoStart.IsChecked == true;
+                bool bt = optBluetooth.IsChecked == true;
                 string mode = SelectedMode(), action = SelectedAction();
                 ShowChoosePage();
+                optBluetooth.IsChecked = bt && testSigning;
                 optLaunch.IsChecked = launch;
                 optAutoStart.IsChecked = autoStart;
                 optLegacy.IsChecked = legacy;
@@ -413,6 +493,7 @@ namespace Mtp
             bool launch = optLaunch.IsChecked == true;
             bool legacy = optLegacy.IsChecked == true && optLegacy.Visibility == Visibility.Visible;
             bool service = optService.IsChecked == true;
+            bool bluetooth = optBluetooth.IsChecked == true && testSigning;
 
             StackPanel p = new StackPanel();
             TextBlock title = Heading(action == "Uninstall" ? "取り除いています..." : "導入しています...");
@@ -455,6 +536,7 @@ namespace Mtp
             args.Append(" -SetupExe \"").Append(Assembly.GetExecutingAssembly().Location).Append("\"");
             if (legacy) args.Append(" -RemoveLegacyCertificate");
             if (service) args.Append(" -LockScreenService");
+            if (bluetooth && action == "Install") args.Append(" -Bluetooth");
             if (launch) args.Append(" -Launch");
             if (optAutoStart.IsChecked == true) args.Append(" -AutoStart");
 
@@ -552,7 +634,8 @@ namespace Mtp
             if (Directory.Exists(dir)) throw new IOException("展開先がすでにあります: " + dir);
             Directory.CreateDirectory(dir, sec);
             Assembly asm = Assembly.GetExecutingAssembly();
-            foreach (string name in new string[] { "setup-core.ps1", "mtpagent-standard.exe", "mtpagent-uiaccess.exe", "mtpsettings.exe", "mtplauncher.exe", "MtpUsb.inf", "mtpusb.cat", "mtpswitchsvc.exe", "mtpswitch.exe" })
+            foreach (string name in new string[] { "setup-core.ps1", "mtpagent-standard.exe", "mtpagent-uiaccess.exe", "mtpsettings.exe", "mtplauncher.exe", "MtpUsb.inf", "mtpusb.cat",
+                "MtpBth.inf", "MtpBth.sys", "mtpbth.cat", "mtpswitchsvc.exe", "mtpswitch.exe" })
             {
                 using (Stream src = asm.GetManifestResourceStream(name))
                 {

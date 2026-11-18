@@ -12,6 +12,8 @@ call "%ROOT%\service\build.cmd" || exit /b 1
 call "%ROOT%\tools\mtpswitch\build.cmd" || exit /b 1
 rem Fresh, unsigned catalog. The installer signs it on the target PC with a one-time certificate.
 call "%ROOT%\drivers\MtpUsb\package.cmd" || exit /b 1
+rem Bluetooth driver (advanced option, test-signing mode only). Also unsigned; signed on the target PC.
+call "%ROOT%\drivers\MtpBth\package.cmd" || exit /b 1
 
 set FW=%WINDIR%\Microsoft.NET\Framework64\v4.0.30319
 set WPF=%FW%\WPF
@@ -27,6 +29,9 @@ set WPF=%FW%\WPF
   /resource:"%B%\agent\mtplauncher.exe",mtplauncher.exe ^
   /resource:"%B%\drivers\MtpUsb\MtpUsb.inf",MtpUsb.inf ^
   /resource:"%B%\drivers\MtpUsb\mtpusb.cat",mtpusb.cat ^
+  /resource:"%B%\drivers\Release\MtpBth\MtpBth.inf",MtpBth.inf ^
+  /resource:"%B%\drivers\Release\MtpBth\MtpBth.sys",MtpBth.sys ^
+  /resource:"%B%\drivers\Release\MtpBth\mtpbth.cat",mtpbth.cat ^
   /resource:"%B%\service\mtpswitchsvc.exe",mtpswitchsvc.exe ^
   /resource:"%B%\mtpswitch\mtpswitch.exe",mtpswitch.exe ^
   "%~dp0MtpSetup.cs" || exit /b 1

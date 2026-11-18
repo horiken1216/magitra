@@ -13,6 +13,9 @@
 #   5. C:\Program Files\MAGITRA に常駐アプリ・設定画面・インストーラーをコピーし、「アプリ」の一覧に登録する
 #   6. -LockScreenService のとき: サービス MagitraSwitch（ロック中・ログオン前だけ標準の HID に戻す）を登録して開始する。
 #      付けないときは、以前に登録したサービスを削除する
+#   4b. -Bluetooth のとき（詳細設定。テスト署名モードの PC だけ）: MtpBth.sys とカタログにも同じ証明書で署名し、
+#      証明書を「信頼されたルート」と「信頼された発行元」に登録して、Bluetooth の Magic Trackpad に MtpBth を当てる。
+#      付けないときは、以前に入れた MtpBth（spike.ps1 で入れたものも含む）を取り除き、Windows 標準の HidBth に戻す
 #   7. 以前の MAGITRA のドライバーパッケージと証明書を片付ける（新しいものが揃うまでは残す）
 #   8. 普段のユーザーと同じアカウントで動いていれば、ログオン時の起動の登録先を直し、常駐アプリを起動する
 #   5 より前に失敗したら、この導入で加えたドライバーと証明書を戻す（以前の状態のままになる）
@@ -25,6 +28,7 @@ param(
     [string]$SetupExe = '',
     [switch]$RemoveLegacyCertificate,
     [switch]$LockScreenService,
+    [switch]$Bluetooth,
     [switch]$Launch,
     [switch]$AutoStart
 )
@@ -37,6 +41,10 @@ $UninstallKey = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\MAGIT
 $CertSubject = 'CN=MAGITRA Local Signing'
 $LegacyCertSubject = 'CN=MAGITRA Test Signing'   # 手作業の手順（docs\MANUAL-INSTALL.md）で作った証明書
 $DriverInfName = 'mtpusb.inf'
+$BthInfName = 'mtpbth.inf'
+$BthHardwareIds = @(
+    'BTHENUM\{00001124-0000-1000-8000-00805f9b34fb}_VID&0001004c_PID&0265',
+    'BTHENUM\{00001124-0000-1000-8000-00805f9b34fb}_VID&0001004c_PID&0324')
 $ServiceName = 'MagitraSwitch'
 $Version = '0.2.0'
 
@@ -47,7 +55,55 @@ function Warn($m) { Write-Output "WARN: $m" }
 Add-Type -Namespace MtpSetup -Name Native -MemberDefinition @'
 [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr FindWindowW(string cls, string name);
 [DllImport("user32.dll")] public static extern bool PostMessageW(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam);
+[DllImport("ntdll.dll")] public static extern int NtQuerySystemInformation(int infoClass, byte[] buffer, int length, out int returned);
+[DllImport("newdev.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+public static extern bool UpdateDriverForPlugAndPlayDevicesW(IntPtr hwnd, string hardwareId, string infPath, uint flags, out bool reboot);
 '@
+
+# 自己署名のカーネルドライバー（MtpBth）が読み込まれる起動か。SystemCodeIntegrityInformation（103）で、
+# TESTSIGN（0x02）が立っている＝テスト署名モード、ENABLED（0x01）が落ちている＝署名の強制が無効
+function Test-TestSigning {
+    $buf = [byte[]]::new(8)
+    [BitConverter]::GetBytes([int]8).CopyTo($buf, 0)
+    $ret = 0
+    if ([MtpSetup.Native]::NtQuerySystemInformation(103, $buf, 8, [ref]$ret) -ne 0) { return $false }
+    $opt = [BitConverter]::ToUInt32($buf, 4)
+    return (($opt -band 0x02) -ne 0) -or (($opt -band 0x01) -eq 0)
+}
+
+# ドライバーストアに入れた MtpBth（%windir%\INF\oemNN.inf）を、ペアリング済みの Magic Trackpad に当てる。
+# 標準の HidBth より優先されないことがあるので強制で当てる。当てた機器があれば $true
+function Set-BluetoothDriver([string]$PublishedInf) {
+    $inf = Join-Path $env:windir "INF\$PublishedInf"
+    $applied = $false
+    foreach ($id in $BthHardwareIds) {
+        $reboot = $false
+        # 1 = INSTALLFLAG_FORCE
+        if ([MtpSetup.Native]::UpdateDriverForPlugAndPlayDevicesW([IntPtr]::Zero, $id, $inf, 1, [ref]$reboot)) {
+            Info "MtpBth を当てました: $id"
+            if ($reboot) { Warn '再起動が必要です' }
+            $applied = $true
+        }
+    }
+    return $applied
+}
+
+# MtpBth のパッケージを取り除く（当たっている機器は Windows 標準の HidBth に戻る）。取り除けなかった公開名を返す
+function Remove-BluetoothDriver {
+    $failed = @()
+    foreach ($pkg in @(Get-MtpDriverPackages $BthInfName)) {
+        $out = & pnputil.exe /delete-driver $pkg /uninstall /force
+        if ($LASTEXITCODE -eq 0 -or $LASTEXITCODE -eq 3010) {
+            Info "Bluetooth のドライバーパッケージを取り除きました: $pkg"
+            if ($LASTEXITCODE -eq 3010) { Warn '再起動が必要です' }
+        }
+        else {
+            $out | ForEach-Object { if ($_.Trim()) { Info $_.Trim() } }
+            $failed += $pkg
+        }
+    }
+    return $failed
+}
 
 # 常駐アプリにトレイのメニューの「終了」と同じ指示（WM_COMMAND / IDM_EXIT=104）を送り、設定画面は閉じる。
 # ランチャー（mtplauncher.exe）は常駐アプリが終わるときに一緒に終わる
@@ -144,13 +200,13 @@ function Test-SameUserAsDesktop {
     return ($owners -contains $me)
 }
 
-# pnputil /enum-drivers の出力から、元の名前が mtpusb.inf のパッケージの公開名（oemNN.inf）を集める（表示言語に依存しない）
-function Get-MtpDriverPackages {
+# pnputil /enum-drivers の出力から、元の名前が $InfName（既定は mtpusb.inf）のパッケージの公開名（oemNN.inf）を集める（表示言語に依存しない）
+function Get-MtpDriverPackages([string]$InfName = $DriverInfName) {
     $text = (& pnputil.exe /enum-drivers) -join "`n"
     if ($LASTEXITCODE -ne 0) { throw "ドライバーの一覧を読めませんでした（pnputil の終了コード $LASTEXITCODE）" }
     $names = @()
     foreach ($block in ($text -split "`n\s*`n")) {
-        if ($block -match [regex]::Escape($DriverInfName) -and $block -match '(oem\d+\.inf)') {
+        if ($block -match [regex]::Escape($InfName) -and $block -match '(oem\d+\.inf)') {
             $names += $Matches[1]
         }
     }
@@ -163,9 +219,13 @@ function Remove-InstallerCertificates([string]$Keep = '', [string[]]$Also = @())
     $saved = (Get-ItemProperty $StateKey -ErrorAction SilentlyContinue).CertThumbprint
     if ($saved) { $thumbs += $saved }
     $thumbs += Get-ChildItem Cert:\LocalMachine\Root | Where-Object Subject -eq $CertSubject | ForEach-Object Thumbprint
+    # Bluetooth のドライバー（詳細設定）を入れたときは「信頼された発行元」にも登録している
+    $thumbs += Get-ChildItem Cert:\LocalMachine\TrustedPublisher | Where-Object Subject -eq $CertSubject | ForEach-Object Thumbprint
     foreach ($t in ($thumbs | Where-Object { $_ -and $_ -ne $Keep } | Select-Object -Unique)) {
         $path = "Cert:\LocalMachine\Root\$t"
         if (Test-Path $path) { Remove-Item $path; Info "信頼されたルートから外しました: $t" }
+        $path = "Cert:\LocalMachine\TrustedPublisher\$t"
+        if (Test-Path $path) { Remove-Item $path; Info "信頼された発行元から外しました: $t" }
     }
     # 万一、秘密鍵つきの証明書が残っていたら消す（通常は署名直後に消している）
     Get-ChildItem Cert:\LocalMachine\My | Where-Object { $_.Subject -eq $CertSubject -and $_.Thumbprint -ne $Keep } | ForEach-Object {
@@ -174,9 +234,10 @@ function Remove-InstallerCertificates([string]$Keep = '', [string[]]$Also = @())
 }
 
 function Remove-LegacyCertificates {
-    foreach ($store in 'Cert:\LocalMachine\Root', 'Cert:\LocalMachine\TrustedPublisher', 'Cert:\CurrentUser\My') {
+    # LocalMachine\My は drivers\spike.ps1（Bluetooth の開発用）が秘密鍵付きで作る場所
+    foreach ($store in 'Cert:\LocalMachine\Root', 'Cert:\LocalMachine\TrustedPublisher', 'Cert:\CurrentUser\My', 'Cert:\LocalMachine\My') {
         Get-ChildItem $store -ErrorAction SilentlyContinue | Where-Object Subject -eq $LegacyCertSubject | ForEach-Object {
-            if ($store -eq 'Cert:\CurrentUser\My') { Remove-Item "$store\$($_.Thumbprint)" -DeleteKey }
+            if ($store -like '*\My') { Remove-Item "$store\$($_.Thumbprint)" -DeleteKey }
             else { Remove-Item "$store\$($_.Thumbprint)" }
             Info "旧手順の証明書を取り除きました: $store ($($_.Thumbprint))"
         }
@@ -185,9 +246,17 @@ function Remove-LegacyCertificates {
 
 function Install-Mtp {
     $agentSource = if ($Mode -eq 'UIAccess') { 'mtpagent-uiaccess.exe' } else { 'mtpagent-standard.exe' }
-    foreach ($f in @($agentSource, 'mtpsettings.exe', 'mtplauncher.exe', 'MtpUsb.inf', 'mtpusb.cat', 'mtpswitchsvc.exe', 'mtpswitch.exe')) {
+    $files = @($agentSource, 'mtpsettings.exe', 'mtplauncher.exe', 'MtpUsb.inf', 'mtpusb.cat', 'mtpswitchsvc.exe', 'mtpswitch.exe')
+    if ($Bluetooth) { $files += 'MtpBth.inf', 'MtpBth.sys', 'mtpbth.cat' }
+    foreach ($f in $files) {
         if (-not (Test-Path (Join-Path $Payload $f))) { throw "導入するファイルが見つかりません: $f" }
     }
+    # 何かを変える前に確かめる。テスト署名モードへの切り替えは利用者が自分で行う（インストーラーは起動の設定を変えない）
+    if ($Bluetooth -and -not (Test-TestSigning)) {
+        throw 'Bluetooth 接続には、この PC がテスト署名モードで起動している必要があります。何も変更していません'
+    }
+    # 証明書を「信頼されたルート」に入れるのは、UIAccess 版か Bluetooth を選んだとき
+    $trustRoot = ($Mode -eq 'UIAccess') -or $Bluetooth
 
     Step '常駐アプリと設定画面を終了しています'
     Stop-MtpApps
@@ -200,12 +269,20 @@ function Install-Mtp {
     Copy-Item (Join-Path $Payload 'mtpsettings.exe') (Join-Path $stage 'mtpsettings.exe')
     Copy-Item (Join-Path $Payload 'MtpUsb.inf') (Join-Path $stage 'MtpUsb.inf')
     Copy-Item (Join-Path $Payload 'mtpusb.cat') (Join-Path $stage 'mtpusb.cat')
+    if ($Bluetooth) {
+        # INF とカタログと .sys を同じフォルダーに置く（pnputil はカタログの中のハッシュで確かめる）
+        $bthStage = Join-Path $stage 'MtpBth'
+        New-Item -ItemType Directory -Path $bthStage | Out-Null
+        foreach ($f in 'MtpBth.inf', 'MtpBth.sys', 'mtpbth.cat') { Copy-Item (Join-Path $Payload $f) (Join-Path $bthStage $f) }
+    }
 
     # 途中で失敗したときに戻すための記録。以前の証明書・ドライバー・ファイルは、新しいものが揃うまで残す
     $oldThumb = (Get-ItemProperty $StateKey -ErrorAction SilentlyContinue).CertThumbprint
     $cert = $null
     $trustedNew = $false
+    $trustedPublisherNew = $false
     $published = $null
+    $bthPublished = $null
     $filesTouched = $false
     try {
         Step '使い捨ての証明書を作って署名しています'
@@ -215,6 +292,7 @@ function Install-Mtp {
         try {
             $toSign = @('mtpusb.cat')
             if ($Mode -eq 'UIAccess') { $toSign += 'mtpagent.exe' }
+            if ($Bluetooth) { $toSign += 'MtpBth\MtpBth.sys', 'MtpBth\mtpbth.cat' }
             foreach ($f in $toSign) {
                 $r = Set-AuthenticodeSignature -FilePath (Join-Path $stage $f) -Certificate $cert -HashAlgorithm SHA256
                 if ($r.SignerCertificate -eq $null -or $r.SignerCertificate.Thumbprint -ne $cert.Thumbprint) {
@@ -230,11 +308,19 @@ function Install-Mtp {
             Info '署名に使った秘密鍵を消しました（今後この証明書では何にも署名できません）'
         }
 
-        if ($Mode -eq 'UIAccess') {
-            Step 'この PC で証明書を信頼させています（UIAccess に必要）'
+        if ($trustRoot) {
+            $why = if ($Mode -eq 'UIAccess' -and $Bluetooth) { 'UIAccess と Bluetooth のドライバー' }
+                   elseif ($Bluetooth) { 'Bluetooth のドライバー' } else { 'UIAccess' }
+            Step "この PC で証明書を信頼させています（$why に必要）"
             Import-Certificate -FilePath $cerFile -CertStoreLocation Cert:\LocalMachine\Root | Out-Null
             $trustedNew = $true
-            $check = Get-AuthenticodeSignature (Join-Path $stage 'mtpagent.exe')
+            if ($Bluetooth) {
+                # 自己署名のドライバーパッケージを、確認の画面なしで入れるために「信頼された発行元」にも登録する
+                Import-Certificate -FilePath $cerFile -CertStoreLocation Cert:\LocalMachine\TrustedPublisher | Out-Null
+                $trustedPublisherNew = $true
+            }
+            $checkFile = if ($Mode -eq 'UIAccess') { 'mtpagent.exe' } else { 'MtpBth\MtpBth.sys' }
+            $check = Get-AuthenticodeSignature (Join-Path $stage $checkFile)
             if ($check.Status -ne 'Valid') { throw "署名を確かめられませんでした: $($check.StatusMessage)" }
             Info "署名を確かめました（証明書 $($cert.Thumbprint)）"
         }
@@ -253,6 +339,23 @@ function Install-Mtp {
         if ($code -ne 0 -and $code -ne 259 -and $code -ne 3010) { throw "ドライバーを導入できませんでした（pnputil の終了コード $code）" }
         if ($code -eq 259) { Warn 'トラックパッドが USB でつながっていないため、ドライバーは登録だけしました。つなぐと自動で当たります' }
         if ($code -eq 3010) { Warn '再起動が必要です' }
+
+        if ($Bluetooth) {
+            Step 'Bluetooth のドライバー（MtpBth）を Magic Trackpad に当てています'
+            $bthBefore = @(Get-MtpDriverPackages $BthInfName)
+            $out = & pnputil.exe /add-driver (Join-Path $bthStage 'MtpBth.inf')
+            $code = $LASTEXITCODE
+            $out | ForEach-Object { if ($_.Trim()) { Info $_.Trim() } }
+            $bthPublished = @(Get-MtpDriverPackages $BthInfName) | Where-Object { $bthBefore -notcontains $_ } | Select-Object -First 1
+            if (-not $bthPublished) {
+                $bthPublished = ($out -join "`n") | Select-String -Pattern 'oem\d+\.inf' | ForEach-Object { $_.Matches[0].Value } | Select-Object -First 1
+            }
+            if ($code -ne 0 -and $code -ne 3010) { throw "Bluetooth のドライバーを導入できませんでした（pnputil の終了コード $code）" }
+            if (-not $bthPublished) { throw 'Bluetooth のドライバーパッケージの公開名を確かめられませんでした' }
+            if (-not (Set-BluetoothDriver $bthPublished)) {
+                Warn 'ペアリング済みの Magic Trackpad が見つからないため、ドライバーは登録だけしました。ペアリングしてから、もう一度導入してください'
+            }
+        }
 
         Step "$InstallDir にコピーしています"
         $filesTouched = $true
@@ -273,7 +376,8 @@ function Install-Mtp {
         Set-ItemProperty $StateKey -Name Mode -Value $Mode
         Set-ItemProperty $StateKey -Name Version -Value $Version
         Set-ItemProperty $StateKey -Name LockScreenService -Value ([int][bool]$LockScreenService) -Type DWord
-        if ($Mode -eq 'UIAccess') { Set-ItemProperty $StateKey -Name CertThumbprint -Value $cert.Thumbprint }
+        Set-ItemProperty $StateKey -Name Bluetooth -Value ([int][bool]$Bluetooth) -Type DWord
+        if ($trustRoot) { Set-ItemProperty $StateKey -Name CertThumbprint -Value $cert.Thumbprint }
         else { Remove-ItemProperty $StateKey -Name CertThumbprint -ErrorAction SilentlyContinue }
         New-Item -Path $UninstallKey -Force | Out-Null
         $setupPath = Join-Path $InstallDir 'mtpsetup.exe'
@@ -302,7 +406,21 @@ function Install-Mtp {
                 else { Warn "以前のドライバーパッケージを取り除けませんでした: $old（pnputil の終了コード $LASTEXITCODE）" }
             }
         }
-        $keep = if ($Mode -eq 'UIAccess') { $cert.Thumbprint } else { '' }
+        if ($Bluetooth) {
+            foreach ($old in @(Get-MtpDriverPackages $BthInfName)) {
+                if ($old -ne $bthPublished) {
+                    # 新しいパッケージを強制で当てたので、以前のものはもう使われていない
+                    $null = & pnputil.exe /delete-driver $old /force
+                    if ($LASTEXITCODE -eq 0) { Info "以前の Bluetooth のドライバーパッケージを取り除きました: $old" }
+                    else { Warn "以前の Bluetooth のドライバーパッケージを取り除けませんでした: $old（pnputil の終了コード $LASTEXITCODE）" }
+                }
+            }
+        }
+        else {
+            # Bluetooth を選ばなかった: 以前に入れた MtpBth（spike.ps1 で入れたものも）を外し、標準の HidBth に戻す
+            foreach ($p in @(Remove-BluetoothDriver)) { Warn "Bluetooth のドライバーパッケージを取り除けませんでした: $p" }
+        }
+        $keep = if ($trustRoot) { $cert.Thumbprint } else { '' }
         Remove-InstallerCertificates -Keep $keep -Also @($oldThumb)
         if ($RemoveLegacyCertificate) { Remove-LegacyCertificates }
 
@@ -334,6 +452,11 @@ function Install-Mtp {
         $err = $_
         if (-not $filesTouched) {
             # ファイルはまだ以前のまま。この導入で加えたドライバーと証明書だけを戻せば、導入前の状態に戻る
+            if ($bthPublished) {
+                $null = & pnputil.exe /delete-driver $bthPublished /uninstall /force
+                if ($LASTEXITCODE -eq 0) { Info "この導入で加えた Bluetooth のドライバーパッケージを取り除きました: $bthPublished" }
+                else { Warn "この導入で加えた Bluetooth のドライバーパッケージを取り除けませんでした: $bthPublished（pnputil の終了コード $LASTEXITCODE）" }
+            }
             if ($published) {
                 $null = & pnputil.exe /delete-driver $published /uninstall /force
                 if ($LASTEXITCODE -eq 0) {
@@ -348,6 +471,10 @@ function Install-Mtp {
                     Info "この導入で信頼させた証明書を外しました: $($cert.Thumbprint)"
                 }
                 catch { Warn "この導入で信頼させた証明書を外せませんでした: $($cert.Thumbprint)" }
+            }
+            if ($trustedPublisherNew -and $cert) {
+                try { Remove-Item "Cert:\LocalMachine\TrustedPublisher\$($cert.Thumbprint)" -ErrorAction Stop }
+                catch { Warn "この導入で信頼された発行元に登録した証明書を外せませんでした: $($cert.Thumbprint)" }
             }
             Warn '途中で止まったため、この導入で加えた変更を戻しました。以前の状態のままです'
         }
@@ -369,6 +496,14 @@ function Uninstall-Mtp {
 
     Step '切り替えサービスを削除しています'
     Remove-MtpService
+
+    Step 'Bluetooth のドライバー（MtpBth）を外しています'
+    $failedBth = @(Remove-BluetoothDriver)
+    if ($failedBth.Count -gt 0) {
+        # 署名の信頼を外すと、残った MtpBth が使えなくなる。ここで止めて、ほかは残す
+        throw "Bluetooth のドライバーパッケージを取り除けませんでした（$($failedBth -join ', ')）。" +
+            "ファイル・証明書・「アプリ」の一覧の登録は残しています。再起動してから、もう一度「取り除く」を実行してください"
+    }
 
     Step 'WinUSB を外して、Windows 標準のドライバーに戻しています'
     $failedPkgs = @()

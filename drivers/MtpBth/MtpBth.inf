@@ -1,10 +1,11 @@
 ;
-; MtpBth.inf - Magic Trackpad (Bluetooth) spike driver
+; MtpBth.inf - Magic Trackpad (Bluetooth) driver for MAGITRA (test-signing mode only)
 ;
 ; Installs as the function driver on the BTHENUM HID service PDO, replacing hidbth.
-; While installed, the trackpad no longer works as a standard HID mouse
-; (this spike does not forward input to Windows).
-; To revert: pnputil /delete-driver <oemNN.inf> /uninstall
+; While installed, the trackpad works only through the MAGITRA agent; the MagitraSwitch service
+; puts hidbth back while the PC is locked or at the sign-in screen.
+; Installed and removed by mtpsetup.exe (advanced option), or by drivers\spike.ps1 for development.
+; To revert by hand: pnputil /delete-driver <oemNN.inf> /uninstall
 ;
 
 [Version]
@@ -65,5 +66,5 @@ KmdfLibraryVersion = $KMDFVERSION$
 [Strings]
 ProviderName        = "MAGITRA"
 DiskName            = "MAGITRA Installation Disk"
-MtpBth.DeviceDesc   = "Magic Trackpad (MAGITRA Bluetooth spike)"
+MtpBth.DeviceDesc   = "Magic Trackpad (MAGITRA Bluetooth)"
 MtpBth.ServiceDesc  = "MAGITRA Magic Trackpad Bluetooth Driver"
