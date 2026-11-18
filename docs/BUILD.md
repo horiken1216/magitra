@@ -65,3 +65,14 @@ build.cmd
 | `probe/` | 調査スクリプト（Python） |
 | `assets/brand/` | ロゴとアイコン（[利用条件](../assets/brand/README.md)） |
 | `docs/` | 資料。`docs/research/` は調査記録 |
+
+## リリース
+
+`.github/workflows/release.yml` が、GitHub の Windows ランナーでビルドする（WDK・SDK 10.0.26100 がなければ winget で入れる）。
+
+1. `installer/setup-core.ps1` の `$Version` を上げる
+2. `docs/releases/vX.Y.Z.md` にリリースの本文を書く（SHA-256 の行はワークフローが足す）
+3. コミットして push し、`vX.Y.Z` のタグを push する。単体テストと `build.cmd` が通れば、`mtpsetup.exe` を添付した Release が作られる
+
+Actions の画面から手動で動かすと、ビルドとテストだけ行い、`mtpsetup.exe` をワークフローの成果物として残す（タグの前の確認用）。
+署名はしない（インストーラーが導入先の PC で行う）ので、証明書や秘密を GitHub に置く必要はない。

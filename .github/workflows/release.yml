@@ -1,0 +1,74 @@
+# Build mtpsetup.exe on GitHub's Windows runner.
+# - Push a tag "vX.Y.Z": run all unit tests, build mtpsetup.exe, and publish a GitHub Release with the file and its SHA-256.
+#   The release text is docs/releases/vX.Y.Z.md (required), followed by the SHA-256 line.
+# - Run by hand (Actions tab → release → Run workflow): build and test only, and keep mtpsetup.exe as a workflow artifact.
+#
+# Nothing is signed here. mtpsetup.exe signs the drivers (and the UIAccess agent) on the user's PC with a one-time
+# certificate, so no certificate or secret is stored in GitHub.
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      # The build scripts use Windows SDK / WDK 10.0.26100 at fixed paths (drivers\build.cmd, drivers\*\package.cmd).
+      - name: Install Windows SDK and WDK 10.0.26100 if missing
+        shell: pwsh
+        run: |
+          $kits = "${env:ProgramFiles(x86)}\Windows Kits\10"
+          $needSdk = -not (Test-Path "$kits\Include\10.0.26100.0\shared")
+          $needWdk = -not (Test-Path "$kits\Include\10.0.26100.0\km") -or -not (Test-Path "$kits\bin\10.0.26100.0\x86\Inf2Cat.exe")
+          Write-Host "SDK 10.0.26100 missing: $needSdk / WDK 10.0.26100 missing: $needWdk"
+          $common = @('--source', 'winget', '--silent', '--accept-package-agreements', '--accept-source-agreements', '--disable-interactivity')
+          if ($needSdk) {
+            winget install --id Microsoft.WindowsSDK.10.0.26100 @common
+            if ($LASTEXITCODE -ne 0) { throw "winget (SDK) failed: $LASTEXITCODE" }
+          }
+          if ($needWdk) {
+            winget install --id Microsoft.WindowsWDK.10.0.26100 @common
+            if ($LASTEXITCODE -ne 0) { throw "winget (WDK) failed: $LASTEXITCODE" }
+          }
+          foreach ($p in "$kits\Include\10.0.26100.0\km", "$kits\Include\wdf\kmdf\1.15", "$kits\bin\10.0.26100.0\x86\Inf2Cat.exe", "$kits\bin\10.0.26100.0\x64\stampinf.exe") {
+            if (-not (Test-Path $p)) { throw "still missing: $p" }
+          }
+
+      - name: Unit tests and mtpsetup.exe
+        shell: cmd
+        run: call build.cmd
+
+      - name: SHA-256
+        id: hash
+        shell: pwsh
+        run: |
+          $h = (Get-FileHash build\mtpsetup.exe -Algorithm SHA256).Hash
+          Write-Host "mtpsetup.exe SHA-256: $h"
+          "sha256=$h" >> $env:GITHUB_OUTPUT
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mtpsetup
+          path: build/mtpsetup.exe
+
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          SHA256: ${{ steps.hash.outputs.sha256 }}
+        run: |
+          $notes = "docs/releases/$env:TAG.md"
+          if (-not (Test-Path $notes)) { throw "$notes がありません。リリースの本文を書いてからタグを付けてください" }
+          $body = (Get-Content $notes -Raw -Encoding UTF8).TrimEnd() + "`n`n" + '`mtpsetup.exe` の SHA-256: `' + $env:SHA256 + '`' + "`n"
+          Set-Content -Path release-body.md -Value $body -Encoding UTF8
+          gh release create $env:TAG build/mtpsetup.exe --title "MAGITRA $($env:TAG.TrimStart('v'))" --notes-file release-body.md --verify-tag
