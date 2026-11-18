@@ -75,4 +75,10 @@ build.cmd
 3. コミットして push し、`vX.Y.Z` のタグを push する。単体テストと `build.cmd` が通れば、`mtpsetup.exe` を添付した Release が作られる
 
 Actions の画面から手動で動かすと、ビルドとテストだけ行い、`mtpsetup.exe` をワークフローの成果物として残す（タグの前の確認用）。
-署名はしない（インストーラーが導入先の PC で行う）ので、証明書や秘密を GitHub に置く必要はない。
+署名はしない（インストーラーが導入先の PC で行う）ので、証明書を GitHub に置く必要はない。
+
+リポジトリの Secrets に `VIRUSTOTAL_API_KEY`（VirusTotal の無料の API キー）があれば、ビルドした `mtpsetup.exe` を VirusTotal に送り、
+最大 5 分ほど結果を待って、検査結果のリンクと「何個のエンジンが危険・疑わしいと判定したか」を Release の本文に載せる。
+判定があってもビルドは止めない（署名のないインストーラーは、評判で疑わしいとされることがある）。キーがなければこの手順は飛ばす。
+公開済みの Release を検査し直すときは、Actions の画面から `scan_release` にタグ（例: `v0.3.0`）を入れて動かす。
+その Release の `mtpsetup.exe` を VirusTotal に送り、本文の VirusTotal の行を最新の結果に置き換える（ビルドはしない）。
