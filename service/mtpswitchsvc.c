@@ -5,8 +5,11 @@
  * トラックパッドが使えない。このサービスは、その間だけ MI_01 を標準の HidUsb に戻し、普通のマウスとして使えるようにする
  * （ポインター移動・左右のクリック。ジェスチャーなどは使えない）。
  *
+ * Bluetooth も同じで、テスト署名モードで MtpBth を入れているときは、その間だけ Windows 標準の HidBth に戻す
+ * （MtpBth が入っていなければ Bluetooth の機器には触らない）。切り替えの処理は agent/mtp_switch.c。
+ *
  * あるべき状態:
- *   コンソールのセッションにユーザーがログオンしていて、ロックされていない → WinUSB（常駐アプリがフル機能で使う）
+ *   コンソールのセッションにユーザーがログオンしていて、ロックされていない → MAGITRA（WinUSB / MtpBth。常駐アプリがフル機能で使う）
  *   それ以外（起動直後のログオン画面、ロック中、ログオフ、ユーザーの切り替え中） → 標準の HID
  * シャットダウン中は切り替えない。PnP がドライバーの導入を受け付けず、約 1 分待たされた末に
  * ERROR_NO_CONFIGMGR_SERVICES で失敗し、再起動を遅らせた（実機、2026-11-16）。WinUSB のまま再起動しても、
@@ -216,32 +219,22 @@ static BOOL ConsoleUserActiveAndUnlocked(void)
 
 static MTP_DRIVER_MODE DesiredMode(void)
 {
-    return ConsoleUserActiveAndUnlocked() ? MTP_MODE_WINUSB : MTP_MODE_HID;
+    return ConsoleUserActiveAndUnlocked() ? MTP_MODE_MAGITRA : MTP_MODE_HID;
 }
 
 static const wchar_t *ModeName(MTP_DRIVER_MODE m)
 {
-    return m == MTP_MODE_HID ? L"HID" : m == MTP_MODE_WINUSB ? L"WinUSB" : L"不明";
+    return m == MTP_MODE_HID ? L"標準の HID" : m == MTP_MODE_MAGITRA ? L"MAGITRA（WinUSB / MtpBth）" : L"不明";
 }
 
 /* 今の状態をあるべき状態に合わせる */
 static void Reconcile(const wchar_t *reason)
 {
     MTP_DRIVER_MODE desired = DesiredMode();
-    int pending = 0;
-    MTP_DRIVER_MODE current = MtpSwitchCurrentModeEx(&pending);
-    if (current == MTP_MODE_UNKNOWN) {
-        return; /* 未接続（または別のドライバー）。何もしない */
+    if (MtpSwitchIsSettled(desired)) {
+        return; /* 対象の機器がない場合も含む */
     }
-    /*
-     * WinUSB が登録済みで「再起動が必要」のときは、常駐アプリがもう WinUSB で開いている見込みが高い
-     * （動かし直すと使用中で断られ続ける）。HID に戻すときだけ、動かし直しを待っている状態を食い違いとみなす。
-     */
-    if (current == desired && (!pending || desired == MTP_MODE_WINUSB)) {
-        return;
-    }
-    LogF(L"%s: 今は %s%s、あるべき状態は %s", reason, ModeName(current), pending ? L"（登録のみ、動かし直し待ち）" : L"",
-        ModeName(desired));
+    LogF(L"%s: あるべき状態は %s", reason, ModeName(desired));
     MtpSwitchTo(desired, WriteLog);
 }
 

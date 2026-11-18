@@ -6,12 +6,16 @@
  *   mtpdump --status   状態だけ表示する
  *   mtpdump --hex      解析結果に加えて生バイト列も表示する
  *   mtpdump --haptic   振動レポートを 3 種類の送り方で 1 回ずつ（3 秒おきに）送り、結果を表示する
+ *   mtpdump --send <送り方> <16進>  レポートを 1 つ送ってから、届くレポートを表示し続ける（--hex と一緒に使う）
+ *                      送り方: 1 = 割り込み DATA(Output)、2 = 制御 SET_REPORT(Output)、3 = 制御 SET_REPORT(Feature)
+ *                      例: mtpdump --hex --send 3 F10200
  */
 #include <windows.h>
 #include <winioctl.h>
 #include <cfgmgr32.h>
 #include <initguid.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "../../drivers/MtpBth/Public.h"
@@ -79,6 +83,45 @@ static int TestHaptic(HANDLE h)
     return 0;
 }
 
+/* 16 進の文字列（区切りなし）をバイト列にする。失敗なら 0 */
+static size_t ParseHex(const char *text, UCHAR *out, size_t outLen)
+{
+    size_t n = 0;
+    while (text[0] != '\0' && text[1] != '\0') {
+        unsigned int v;
+        char pair[3] = { text[0], text[1], '\0' };
+        if (n >= outLen || sscanf_s(pair, "%2x", &v) != 1) {
+            return 0;
+        }
+        out[n++] = (UCHAR)v;
+        text += 2;
+    }
+    return text[0] == '\0' ? n : 0;
+}
+
+static int SendReport(HANDLE h, const char *methodText, const char *hexText)
+{
+    UCHAR in[1 + MTP_SET_REPORT_MAX];
+    size_t n = ParseHex(hexText, in + 1, MTP_SET_REPORT_MAX);
+    MTP_STATUS_INFO st;
+    DWORD got = 0;
+    BOOL ok;
+
+    in[0] = (UCHAR)atoi(methodText);
+    if (n == 0 || in[0] < MTP_SEND_INTERRUPT_OUTPUT || in[0] > MTP_SEND_CONTROL_FEATURE) {
+        printf("usage: mtpdump --send <1|2|3> <hex>\n");
+        return 2;
+    }
+    ok = DeviceIoControl(h, MTP_IOCTL_SET_REPORT, in, (DWORD)(1 + n), NULL, 0, &got, NULL);
+    printf("send method=%u len=%zu: %s (err=%lu", in[0], n, ok ? "sent" : "failed", ok ? 0 : GetLastError());
+    got = 0;
+    if (DeviceIoControl(h, MTP_IOCTL_GET_STATUS, NULL, 0, &st, sizeof(st), &got, NULL) && got == sizeof(st)) {
+        printf(", handshake=0x%lX", st.SetReportHandshake);
+    }
+    printf(")\n");
+    return ok ? 0 : 1;
+}
+
 static BOOL PrintStatus(HANDLE h)
 {
     MTP_STATUS_INFO st;
@@ -99,6 +142,8 @@ int main(int argc, char **argv)
     BOOL statusOnly = FALSE;
     BOOL hex = FALSE;
     BOOL haptic = FALSE;
+    const char *sendMethod = NULL;
+    const char *sendHex = NULL;
     HANDLE h;
     int i;
 
@@ -106,6 +151,10 @@ int main(int argc, char **argv)
         if (strcmp(argv[i], "--status") == 0) statusOnly = TRUE;
         else if (strcmp(argv[i], "--hex") == 0) hex = TRUE;
         else if (strcmp(argv[i], "--haptic") == 0) haptic = TRUE;
+        else if (strcmp(argv[i], "--send") == 0 && i + 2 < argc) {
+            sendMethod = argv[++i];
+            sendHex = argv[++i];
+        }
     }
 
     h = OpenMtpDevice();
@@ -121,6 +170,10 @@ int main(int argc, char **argv)
         i = haptic ? TestHaptic(h) : 0;
         CloseHandle(h);
         return i;
+    }
+    if (sendMethod != NULL && SendReport(h, sendMethod, sendHex) == 2) {
+        CloseHandle(h);
+        return 2;
     }
 
     for (;;) {

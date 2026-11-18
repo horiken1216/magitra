@@ -170,6 +170,11 @@ static void test_enable_reports(void)
     CHECK(n == 2 && p[0] == 0x02 && p[1] == 0x01);
 
     CHECK(MtpGetEnableReport(MTP_TRANSPORT_BT, NULL, &n) == MTP_ERR_ARG);
+
+    CHECK(MtpGetDisableReport(MTP_TRANSPORT_BT, &p, &n) == MTP_OK);
+    CHECK(n == 3 && p[0] == 0xF1 && p[1] == 0x02 && p[2] == 0x00);
+    CHECK(MtpGetDisableReport(MTP_TRANSPORT_USB, &p, &n) == MTP_ERR_ARG);
+    CHECK(MtpGetDisableReport(MTP_TRANSPORT_BT, NULL, &n) == MTP_ERR_ARG);
     CHECK(MtpInputReportId(MTP_TRANSPORT_BT) == 0x31);
     CHECK(MtpInputReportId(MTP_TRANSPORT_USB) == 0x02);
 

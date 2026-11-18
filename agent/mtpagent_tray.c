@@ -364,6 +364,8 @@ static DWORD WINAPI WorkerMain(LPVOID param)
                 CloseDevice(&dev);
                 connected = 0;
             }
+            /* Bluetooth の振動用に MtpBth を開いていると、サービスが HidBth に戻せない */
+            MtpHapticOutClose(&g_haptic);
             SetLinkState(LINK_RELEASED);
             WaitForSingleObject(g_stopEvent, 500);
             continue;
@@ -611,6 +613,7 @@ static void SetReleased(int released)
     InterlockedExchange(&g_released, released ? 1 : 0);
     if (released) {
         AbortPendingRead(); /* 読み取り待ちを中断して、すぐにハンドルを閉じさせる */
+        MtpHapticOutClose(&g_uiHaptic); /* 設定画面の「試す」で開いた MtpBth も閉じる */
     }
 }
 

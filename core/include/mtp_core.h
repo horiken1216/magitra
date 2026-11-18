@@ -98,6 +98,13 @@ typedef struct MTP_FRAME {
  */
 MTP_STATUS MtpGetEnableReport(MTP_TRANSPORT transport, const uint8_t **report, size_t *length);
 
+/*
+ * マウスのモード（Windows 標準のドライバーが読める入力 0x02）へ戻すフィーチャーレポート。Bluetooth だけ（USB は MTP_ERR_ARG）。
+ * マルチタッチのまま Windows 標準の HidBth に渡すと、トラックパッドの電源を入れ直すまでマウスとして動かないので、
+ * ドライバーが外れる前に送る。
+ */
+MTP_STATUS MtpGetDisableReport(MTP_TRANSPORT transport, const uint8_t **report, size_t *length);
+
 /* 入力レポートの Report ID */
 uint8_t MtpInputReportId(MTP_TRANSPORT transport);
 

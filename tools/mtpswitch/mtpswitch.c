@@ -1,13 +1,13 @@
 /*
- * mtpswitch.c - Magic Trackpad の MI_01 のドライバーを、Windows 標準の HID と WinUSB（MAGITRA）の間で手動で切り替える道具
+ * mtpswitch.c - Magic Trackpad のドライバーを、Windows 標準の HID と MAGITRA（USB は WinUSB、Bluetooth は MtpBth）の間で手動で切り替える道具
  *
  * 普段はサービス（mtpswitchsvc.exe）がロック・ログオンに合わせて自動で切り替える。これは試験と、困ったときの手動の切り替え用。
  * 切り替えの処理は agent/mtp_switch.c（サービスと同じ）。
  *
- * 使い方（hid と winusb は管理者権限で）:
+ * 使い方（hid と magitra は管理者権限で）:
  *   mtpswitch status   今のドライバーを表示する
  *   mtpswitch hid      Windows 標準の HID に切り替える
- *   mtpswitch winusb   WinUSB（MAGITRA）に戻す
+ *   mtpswitch magitra  MAGITRA のドライバーに戻す（winusb とも書ける）
  */
 #include <windows.h>
 #include <locale.h>
@@ -38,7 +38,7 @@ static BOOL IsElevated(void)
 
 static const wchar_t *ModeName(MTP_DRIVER_MODE m)
 {
-    return m == MTP_MODE_HID ? L"HidUsb（Windows 標準の HID）" : m == MTP_MODE_WINUSB ? L"WINUSB（MTP）" : L"不明（未接続か、別のドライバー）";
+    return m == MTP_MODE_HID ? L"Windows 標準の HID（HidUsb / HidBth）" : m == MTP_MODE_MAGITRA ? L"MAGITRA（WinUSB / MtpBth）" : L"不明（未接続か、別のドライバー）";
 }
 
 int wmain(int argc, wchar_t **argv)
@@ -60,8 +60,8 @@ int wmain(int argc, wchar_t **argv)
     }
     if (_wcsicmp(argv[1], L"hid") == 0) {
         target = MTP_MODE_HID;
-    } else if (_wcsicmp(argv[1], L"winusb") == 0) {
-        target = MTP_MODE_WINUSB;
+    } else if (_wcsicmp(argv[1], L"magitra") == 0 || _wcsicmp(argv[1], L"winusb") == 0) {
+        target = MTP_MODE_MAGITRA;
     } else {
         wprintf(L"使い方: mtpswitch status | hid | winusb\n");
         return 2;

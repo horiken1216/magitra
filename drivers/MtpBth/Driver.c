@@ -220,11 +220,21 @@ NTSTATUS
 MtpEvtD0Exit(_In_ WDFDEVICE Device, _In_ WDF_POWER_DEVICE_STATE TargetState)
 {
     PDEVICE_CONTEXT ctx = MtpGetContext(Device);
+    const uint8_t *disable;
+    size_t disableLength;
 
     UNREFERENCED_PARAMETER(TargetState);
 
     InterlockedExchange(&ctx->Active, 0);
     WdfTimerStop(ctx->ReconnectTimer, TRUE);
+    /*
+     * マルチタッチのまま離すと、次に当たる Windows 標準の HidBth（ロック画面など）では、
+     * トラックパッドの電源を入れ直すまでマウスとして動かない（実機、2026-11-18）。マウスのモードに戻してから切る。
+     * つながっていなければ何もしない（MtpSendReport が STATUS_DEVICE_NOT_CONNECTED を返す）。
+     */
+    if (MtpGetDisableReport(MTP_TRANSPORT_BT, &disable, &disableLength) == MTP_OK) {
+        (VOID)MtpSendReport(ctx, MTP_SEND_CONTROL_FEATURE, disable, (ULONG)disableLength);
+    }
     WdfWaitLockAcquire(ctx->ChannelLock, NULL);
     MtpDisconnect(ctx);
     WdfWaitLockRelease(ctx->ChannelLock);

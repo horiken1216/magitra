@@ -27,6 +27,18 @@
 
 static const uint8_t kEnableBt[]  = { 0xF1, 0x02, 0x01 };
 static const uint8_t kEnableUsb[] = { 0x02, 0x01 };
+/* マウスのモード（入力 0x02）へ戻す。Bluetooth で実機確認済み（2026-11-18）。USB は未確認なので持たない */
+static const uint8_t kDisableBt[] = { 0xF1, 0x02, 0x00 };
+
+MTP_STATUS MtpGetDisableReport(MTP_TRANSPORT transport, const uint8_t **report, size_t *length)
+{
+    if (report == NULL || length == NULL || transport != MTP_TRANSPORT_BT) {
+        return MTP_ERR_ARG;
+    }
+    *report = kDisableBt;
+    *length = sizeof(kDisableBt);
+    return MTP_OK;
+}
 
 static int16_t SignExtend13(uint32_t v)
 {
