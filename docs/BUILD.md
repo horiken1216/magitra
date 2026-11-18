@@ -5,7 +5,7 @@
 | もの | 使うところ |
 |---|---|
 | Visual Studio 2022 Build Tools（「C++ によるデスクトップ開発」、x64 の MSVC と Windows SDK 10.0.26100） | C のコード（常駐アプリ・サービス・道具・テスト）、リソース（`rc.exe`） |
-| Windows Driver Kit 10.0.26100 | WinUSB 用 INF のカタログ（`Inf2Cat.exe`）。Bluetooth の試作ドライバー `drivers/MtpBth` |
+| Windows Driver Kit 10.0.26100 | WinUSB 用 INF のカタログ（`Inf2Cat.exe`）。Bluetooth のドライバー `drivers/MtpBth`（KMDF） |
 | .NET Framework 4.8 の C# コンパイラー（Windows に入っている `csc.exe`） | 設定画面・ランチャー・インストーラー（WPF） |
 | Python 3 と `hidapi`（任意） | `probe/` の調査スクリプトだけ |
 
@@ -35,9 +35,10 @@ build.cmd
 | `service\build.cmd` | ロック中に標準の HID へ切り替えるサービス（`build\service\mtpswitchsvc.exe`） |
 | `tools\mtpswitch\build.cmd` | 手動で切り替える道具（`build\mtpswitch\mtpswitch.exe`） |
 | `drivers\MtpUsb\package.cmd` | WinUSB 用 INF と未署名のカタログ（`build\drivers\MtpUsb\`）。署名はインストーラーが導入先の PC で行う |
+| `drivers\MtpBth\package.cmd` | Bluetooth のドライバー（Release）と未署名のカタログ（`build\drivers\Release\MtpBth\`）。署名はインストーラーが導入先の PC で行う |
 | `installer\build.cmd` | 上をすべて作り直してから、インストーラー（`build\mtpsetup.exe`） |
 | `tools\mtpusbdump\build.cmd` | USB の生フレームを表示する調査用の道具 |
-| `drivers\build.cmd` / `tools\mtpdump\build.cmd` | Bluetooth の試作ドライバーとその表示ツール（[research/BLUETOOTH-SPIKE.md](research/BLUETOOTH-SPIKE.md)） |
+| `drivers\build.cmd` / `tools\mtpdump\build.cmd` | Bluetooth のドライバー（`Debug analyze` で静的解析）とその表示ツール（[research/BLUETOOTH-SPIKE.md](research/BLUETOOTH-SPIKE.md)） |
 | `tools\mkbrand\build.cmd` | `assets\brand` の元画像からアイコンとロゴの PNG を作り直す（元画像を変えたときだけ） |
 
 ## ビルドしたものを試す
@@ -59,7 +60,7 @@ build.cmd
 | `service/` | ロック中・ログオン前に標準の HID へ切り替え、ログオン時に常駐アプリを起動するサービス（C） |
 | `installer/` | インストーラー（C#、WPF）と、その処理本体 `setup-core.ps1` |
 | `drivers/MtpUsb/` | Magic Trackpad の MI_01 に WinUSB を当てる INF |
-| `drivers/MtpBth/` | Bluetooth の試作ドライバー（KMDF、実機未検証） |
+| `drivers/MtpBth/` | Bluetooth のドライバー（KMDF。テスト署名モードでのみ使う詳細設定） |
 | `tools/` | 調査・保守用の道具（生フレームの表示、手動の切り替え、手作業での導入、アイコン作り） |
 | `probe/` | 調査スクリプト（Python） |
 | `assets/brand/` | ロゴとアイコン（[利用条件](../assets/brand/README.md)） |

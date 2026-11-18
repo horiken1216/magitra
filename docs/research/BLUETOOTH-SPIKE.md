@@ -1,7 +1,11 @@
-# MtpBth スパイクドライバーの導入手順
+# MtpBth ドライバーの開発者向けの手順
 
-MtpBth は Magic Trackpad（Bluetooth）の生フレームを取り出して、レポート形式を実機で確認するための検証用ドライバー。
-**入れている間、トラックパッドは Windows のマウスとして動かない。**入力を Windows へ渡す処理（PTP）はまだない。
+**普通に使うときは、インストーラーの詳細設定で入れる（[../BLUETOOTH.md](../BLUETOOTH.md)）。** ここは、インストーラーを使わずに
+Debug ビルドを入れて、生のフレームを `mtpdump` で見るための手順（開発・調査用）。
+
+MtpBth は Magic Trackpad（Bluetooth）の HID の L2CAP チャネルを自分で開き、生フレームをユーザーモード（常駐アプリ・mtpdump）へ渡す。
+**入れている間、トラックパッドは常駐アプリなしでは Windows のマウスとして動かない。**
+ロック中に Windows 標準のドライバーへ戻すのはサービス MagitraSwitch（インストーラーで入れる）の役目。
 
 ## 始める前に
 
@@ -80,10 +84,10 @@ bcdedit /set testsigning on
 pnputil /add-driver build\drivers\Debug\MtpBth\MtpBth.inf /install
 ```
 
-デバイスマネージャーの「システム デバイス」に **Magic Trackpad (MAGITRA Bluetooth spike)** が出れば成功。
+デバイスマネージャーの「システム デバイス」に **Magic Trackpad (MAGITRA Bluetooth)** が出れば成功。
 
 Windows 標準の hidbth が選ばれたままの場合は、手動で切り替える。
-デバイスマネージャー →「ヒューマン インターフェイス デバイス」→「Bluetooth HID デバイス」（Magic Trackpad のもの）→ ドライバーの更新 →「コンピューターを参照」→「一覧から選択」→ **Magic Trackpad (MAGITRA Bluetooth spike)**。
+デバイスマネージャー →「ヒューマン インターフェイス デバイス」→「Bluetooth HID デバイス」（Magic Trackpad のもの）→ ドライバーの更新 →「コンピューターを参照」→「一覧から選択」→ **Magic Trackpad (MAGITRA Bluetooth)**。
 
 ## 7. 動作を確認する（管理者権限は不要）
 
@@ -94,6 +98,9 @@ build\mtpdump\mtpdump.exe --hex
 
 - `--status` で `link=connected handshake=0x0` なら、L2CAP チャネル確立とマルチタッチ有効化が成功している
 - `--hex` を付けて実行し、トラックパッドを 1 本指 → 2 本指 → 押し込み（クリック）の順に触る。出力を保存して共有してほしい（レポート形式の確認に使う）
+- `--haptic` は振動レポートを 3 通りの送り方で 1 回ずつ送る（鳴るのは割り込みチャネルの `[3]`）
+- `--hex --send <1|2|3> <16 進>` は任意のレポートを 1 つ送ってから表示を続ける（例: `--send 3 F10200` でマウスのモードに戻る）
+- 常駐アプリ（`build\agent\mtpagent-cli.exe`）も、USB が見つからなければ MtpBth を使う
 
 うまくいかない場合は `--status` の `link` と `last`（NTSTATUS）を共有してほしい。
 

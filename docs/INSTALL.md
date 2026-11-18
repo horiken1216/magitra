@@ -6,7 +6,7 @@
 - Magic Trackpad と、**データ通信ができる** USB ケーブル（充電専用のケーブルでは動かない）
 - 管理者権限（導入と取り除きのときだけ）
 
-Bluetooth 接続には対応していない（[できないこと](#できないこと)）。
+Bluetooth 接続は、PC をテスト署名モードにした場合だけ使える詳細設定（[BLUETOOTH.md](BLUETOOTH.md)）。
 
 ## 対応機種
 
@@ -51,13 +51,19 @@ python probe\caps.py
 - **ログオンしたら常駐アプリを自動で起動する**: ログオン直後にサービスが常駐アプリを起動する（約 1 秒）
 - **終わったら常駐アプリを起動する**
 
+詳細設定（既定でオフ）:
+
+- **Bluetooth 接続でも使う（テスト署名モードの PC のみ）**: 自作の Bluetooth ドライバー MtpBth を署名して入れ、ペアリング済みの Magic Trackpad に当てる。
+  テスト署名モードで起動していないと選べない。引き換えになるもの・手順・やめ方は [BLUETOOTH.md](BLUETOOTH.md)。
+  オフにして導入し直すと、入っている MtpBth を外して Windows 標準のドライバーに戻す
+
 導入されるもの:
 
 | 場所 | 内容 |
 |---|---|
 | `C:\Program Files\MAGITRA\` | 常駐アプリ `mtpagent.exe`、設定画面 `mtpsettings.exe`、ランチャー `mtplauncher.exe`、サービス `mtpswitchsvc.exe`、手動で切り替える道具 `mtpswitch.exe`、インストーラー `mtpsetup.exe` |
-| ドライバーストア | WinUSB を当てる INF（`MtpUsb.inf`、Magic Trackpad の MI_01 だけが対象） |
-| 証明書ストア | 導入ごとに作る署名用の証明書（`CN=MAGITRA Local Signing`）。署名したらすぐ秘密鍵を消すので、ほかのものには署名できない |
+| ドライバーストア | WinUSB を当てる INF（`MtpUsb.inf`、Magic Trackpad の MI_01 だけが対象）。Bluetooth を選んだときは MtpBth（`MtpBth.inf`・`MtpBth.sys`、Bluetooth の Magic Trackpad だけが対象） |
+| 証明書ストア | 導入ごとに作る署名用の証明書（`CN=MAGITRA Local Signing`）。署名したらすぐ秘密鍵を消すので、ほかのものには署名できない。UIAccess 版か Bluetooth を選んだときは「信頼されたルート」に、Bluetooth を選んだときは「信頼された発行元」にも登録する |
 | `HKCU\Software\MAGITRA\Agent` | ユーザーごとの設定（設定画面で変えたときに作られる） |
 | `C:\ProgramData\MAGITRA\` | サービスの記録 `switch.log`（サービスを入れたとき。管理者と SYSTEM だけが書ける） |
 
@@ -74,7 +80,8 @@ python probe\caps.py
 
 ### 導入したあと
 
-- 影響するのは `USB\VID_05AC&PID_0265&MI_01`（と第 4 世代の `PID_0324&MI_01`）だけ。ほかのインターフェイス・Bluetooth 接続・ほかの機器は変えない
+- 影響するのは `USB\VID_05AC&PID_0265&MI_01`（と第 4 世代の `PID_0324&MI_01`）だけ。ほかのインターフェイス・ほかの機器は変えない。
+  Bluetooth 接続は、詳細設定を選んだときだけ変える
 - **常駐アプリが動いている間だけ**、トラックパッドで操作できる（WinUSB を当てた MI_01 は Windows のマウスとして扱われないため）。
   常駐アプリを終了すると、USB 接続のトラックパッドは動かなくなる
 - デバイスマネージャーの「ユニバーサル シリアル バス デバイス」に Magic Trackpad の WinUSB が出ていれば、ドライバーは入っている
@@ -83,8 +90,10 @@ python probe\caps.py
 ## 取り除く
 
 「設定」→「アプリ」の一覧の「MAGITRA」からアンインストールするか、`C:\Program Files\MAGITRA\mtpsetup.exe` で「取り除く」を選ぶ。
-WinUSB が外れ、トラックパッドは Windows 標準のマウスに戻る。ユーザーの設定（`HKCU\Software\MAGITRA\Agent`）は残る。
-WinUSB を外せなかったときは、そこで止まり、ファイル・証明書・「アプリ」の一覧の登録は残す（トラックパッドを使う手段をなくさないため）。再起動してから、もう一度「取り除く」を実行する。
+WinUSB（と、入れていれば MtpBth）が外れ、トラックパッドは Windows 標準のマウスに戻る。ユーザーの設定（`HKCU\Software\MAGITRA\Agent`）は残る。
+Bluetooth のトラックパッドは、取り除いた後に 1 回クリックするとつながり直す。
+ドライバーを外せなかったときは、そこで止まり、ファイル・証明書・「アプリ」の一覧の登録は残す（トラックパッドを使う手段をなくさないため）。再起動してから、もう一度「取り除く」を実行する。
+Bluetooth を使っていた場合、テスト署名モードと Secure Boot は自分で元に戻す（[BLUETOOTH.md](BLUETOOTH.md#やめるとき)）。
 
 ## 困ったとき
 
@@ -95,14 +104,14 @@ WinUSB を外せなかったときは、そこで止まり、ファイル・証�
 | ロック画面で動かない | サービスを入れたか（インストーラーのオプション）。記録は `C:\ProgramData\MAGITRA\switch.log` |
 | 管理者権限のウィンドウで操作できない | 標準版を入れている。UIAccess 版で入れ直す |
 | UIAccess 版が起動しなくなった | 証明書が取り除かれた可能性がある。インストーラーでもう一度導入するか、標準版で入れ直す |
-| すぐに標準のマウスに戻したい | 管理者権限で `C:\Program Files\MAGITRA\mtpswitch.exe hid`（戻すときは `winusb`） |
+| すぐに標準のマウスに戻したい | 管理者権限で `C:\Program Files\MAGITRA\mtpswitch.exe hid`（戻すときは `magitra`） |
+| Bluetooth で使いたい | [BLUETOOTH.md](BLUETOOTH.md) の困ったときも見る |
 
 ## できないこと
 
-- **Bluetooth 接続**: Bluetooth では、Windows がトラックパッドを普通のマウスとしてしか見せず、指ごとのデータ（レポート 0x31）を
-  途中で捨てる。取り出すにはカーネルのフィルタードライバーが必要で、テスト署名モードか、Microsoft の署名が要る。
-  試作（`drivers/MtpBth`）はあるが実機では未検証（[research/BLUETOOTH-SPIKE.md](research/BLUETOOTH-SPIKE.md)）。
-  Bluetooth でつないだ場合は、Windows 標準のマウスとして動く
+- **テスト署名モードなしの Bluetooth 接続**: Bluetooth では、Windows がトラックパッドを普通のマウスとしてしか見せず、指ごとのデータ（レポート 0x31）を
+  途中で捨てる。取り出すにはカーネルドライバーが必要で、Microsoft の署名がない MAGITRA のドライバーはテスト署名モードでしか読み込まれない
+  （[BLUETOOTH.md](BLUETOOTH.md)）。テスト署名モードでない PC では、Bluetooth でつないだトラックパッドは Windows 標準のマウスとして動く
 - **Windows 標準のタッチパッドのジェスチャー・設定**: Precision Touchpad としては見せていないので、Windows の「タッチパッド」の設定は効かない。
   ジェスチャーは MAGITRA の設定画面で変える
 - **ストアアプリをランチャーに登録する**: スタートメニューにショートカット（.lnk）がないアプリは選べない

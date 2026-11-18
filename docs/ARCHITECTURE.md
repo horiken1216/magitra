@@ -9,18 +9,23 @@ Magic Trackpad（USB）
  │                                  │  慣性スレッド: 8ms ごとに減速しながらホイールを送る（mtp_momentum）
  ├─ MI_02 ──[標準の HID]◀───────────┤  振動: 出力レポート 0x53（core/mtp_haptic.c）
  └─ MI_00/03 は標準の HID のまま    │
+                                    │
+Magic Trackpad（Bluetooth、詳細設定・テスト署名モードのみ）
+ └─ BTHENUM の HID PDO ──[MtpBth.sys]──▶ 同じ mtpagent.exe（USB が見つからないとき）
+     L2CAP の制御・割り込みチャネル      ReadFile で入力 0x31、IOCTL で振動（割り込みチャネルの DATA(Output)）
                                     ├──▶ mtplauncher.exe（ランチャー、隠れたまま常駐）
  mtpsettings.exe（設定画面）────────┤      登録メッセージ MTP_LAUNCHER で表示
    HKCU\Software\MAGITRA\Agent に保存し、MTP_SETTINGS_CHANGED で知らせる
                                     │
  mtpswitchsvc.exe（サービス MagitraSwitch、システム権限）
    ロック・ログオフ・起動時は MI_01 を標準の HidUsb に、ログオン・解除後は WinUSB に切り替える。
+   MtpBth を入れていれば、Bluetooth の Magic Trackpad も同じように HidBth ⇔ MtpBth に切り替える。
    ログオンを見つけたら、そのユーザーのトークンで mtpagent.exe を起動する
 ```
 
 ## なぜこの形か
 
-- **カーネルドライバーを使わない**: 自作のカーネルドライバーは、EV 証明書と Microsoft の署名がなければテスト署名モードでしか読み込めない。
+- **USB ではカーネルドライバーを使わない**: 自作のカーネルドライバーは、EV 証明書と Microsoft の署名がなければテスト署名モードでしか読み込めない。
   そこで、USB の MI_01 に **Microsoft 署名済みの WinUSB** を INF で当て、ユーザーモードで生フレームを読む。
   署名が要るのは INF のカタログだけで、インストーラーがその場限りの証明書で署名する
 - **入力は SendInput で作る**: WinUSB を当てた MI_01 は Windows のマウスとして扱われないので、ポインター・クリック・スクロールは常駐アプリが作る。
@@ -29,8 +34,12 @@ Magic Trackpad（USB）
   `uiAccess="true"` の常駐アプリを、信頼された証明書で署名して `C:\Program Files` に置くと届く（画面読み上げソフトと同じ仕組み）
 - **ロック画面**: 常駐アプリはユーザーのセッションでしか動かないので、ロック画面・ログオン画面ではサービスが MI_01 を標準の HID に戻す。
   常駐アプリはロックされると WinUSB のハンドルを閉じる（開いたままだと、ドライバーの切り替えが「登録だけ」で終わる。下の「落とし穴」）
-- **Bluetooth は非対応**: Windows の HID スタックが指ごとのレポート（0x31）を捨てるため、ユーザーモードでは取り出せない
-  （[research/FINDINGS.md](research/FINDINGS.md)）
+- **Bluetooth は詳細設定（テスト署名モードのみ）**: Windows の HID スタックが指ごとのレポート（0x31）を捨て、ユーザーモードでは
+  HID の L2CAP チャネルも開けない（[research/FINDINGS.md](research/FINDINGS.md)）。そこで KMDF ドライバー MtpBth が HidBth の代わりに
+  BTHENUM の HID PDO に入り、L2CAP の制御（PSM 0x11）・割り込み（PSM 0x13）チャネルを自分で開いて、`F1 02 01` でマルチタッチにする。
+  届いた 0x31 を 8 件までためて ReadFile で渡し、`MTP_IOCTL_SET_REPORT` で振動などを送る（`drivers/MtpBth/Public.h`）。
+  外れる前（D0Exit）には `F1 02 00` でマウスのモードに戻す（マルチタッチのまま HidBth に渡さないため）。
+  常駐アプリの解析・ジェスチャーは USB と共通（`core` の `MTP_TRANSPORT_BT`）。Microsoft の署名がないため、テスト署名モードでしか読み込まれない
 
 ## データの流れ
 
@@ -60,6 +69,9 @@ Magic Trackpad（USB）
   新しいドライバーを登録するだけで、機器は古いドライバーのまま動く（`DN_NEED_RESTART`）。サービス名だけ見ると成功に見える。
   `agent/mtp_switch.c` はこれを見つけて `DIF_PROPERTYCHANGE` で機器を動かし直す
 - **シャットダウン中は切り替えられない**: PnP に断られる（`0xE0000223`）。起動したあとにサービスが標準の HID に戻す
+- **Bluetooth はドライバーを替えると接続が切れる**: MtpBth と HidBth を入れ替えると L2CAP のチャネルが閉じる。HidBth は自分からつなぎ直さないので、
+  トラックパッドを 1 回クリックするまで動かない（そのクリックは Windows に届かない）
+- **Bluetooth の振動は割り込みチャネル**: 制御チャネルの SET_REPORT(Feature) は「成功」の応答を返すのに振動しない。応答を見て送り方を選ぶことはできない
 - **ログオン時の自動起動が遅い**: Windows の Run は 1 つずつ順に起動するので 40 秒以上かかることがあった。サービスが起動する
 - **普通のドラッグでも圧力が最大近くになる**: Force Touch は「押し始め 0.15 秒以内に強く押し、2mm 以上動いていない」ときだけにしている
 
