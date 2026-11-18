@@ -99,6 +99,7 @@ Bluetooth を使っていた場合、テスト署名モードと Secure Boot は
 
 | 症状 | 確かめること |
 |---|---|
+| ダウンロードがウイルス対策ソフトに止められた・`mtpsetup.exe` が「この PC では実行できません」と出る | ウイルス対策ソフトが、署名のない exe を評判や振る舞いで「疑わしい」と判定して止めることがある（Bitdefender の `Gen:Suspicious.Cloud` など）。止められると、ファイルが警告の Web ページ（数 KB）に置き換わり、実行できない。ソースから自分でビルドするか、自分の判断で例外に入れてダウンロードし、`Get-FileHash mtpsetup.exe` が Releases の SHA-256 と同じかを確かめる |
 | トラックパッドが動かない | タスクトレイに虎のアイコンがあるか（なければ `C:\Program Files\MAGITRA\mtpagent.exe` を起動）。アイコンにマウスを重ねると状態が出る |
 | 常駐アプリが「見つかりません」と言う | USB ケーブルがデータ通信用か。WinUSB が入っているか（`C:\Program Files\MAGITRA\mtpswitch.exe status`） |
 | ロック画面で動かない | サービスを入れたか（インストーラーのオプション）。記録は `C:\ProgramData\MAGITRA\switch.log` |

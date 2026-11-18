@@ -49,7 +49,12 @@ PC の安全性を下げる変更なので、内容を理解したうえで利�
 
 `mtpsetup.exe` には正式なコード署名がないため、実行すると SmartScreen が「Windows によって PC が保護されました」と警告します。
 「詳細情報」→「実行」で進めてください。正しいファイルかどうかは、Releases に載せた SHA-256 と
-`Get-FileHash mtpsetup.exe` の結果を比べて確かめられます。自分でビルドする場合は [BUILD.md](docs/BUILD.md) を参照してください
+`Get-FileHash mtpsetup.exe` の結果を比べて確かめられます。
+
+ウイルス対策ソフトが、ダウンロードを「疑わしいファイル」として止めることがあります（Bitdefender の `Gen:Suspicious.Cloud` など）。
+特定のマルウェアを見つけたという判定ではありません。署名がなく利用実績の少ない exe で、中の PowerShell が証明書・ドライバー・サービスを変更するため、
+評判や振る舞いによる判定で疑われやすいのが理由です。気になる場合は、ソースから自分でビルドできます（下記）。
+例外に入れてダウンロードしたときは、Releases に載せた SHA-256 で正しいファイルかを必ず確かめてください。自分でビルドする場合は [BUILD.md](docs/BUILD.md) を参照してください
 （リポジトリのルートで `build.cmd`。Visual Studio 2022 Build Tools と WDK が必要）。
 
 インストーラーは、USB の Magic Trackpad の 1 つのインターフェイス（MI_01）に、Microsoft 署名済みの WinUSB ドライバーを当てます。
