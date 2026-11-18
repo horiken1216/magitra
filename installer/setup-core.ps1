@@ -72,7 +72,8 @@ function Test-TestSigning {
 }
 
 # ドライバーストアに入れた MtpBth（%windir%\INF\oemNN.inf）を、ペアリング済みの Magic Trackpad に当てる。
-# 標準の HidBth より優先されないことがあるので強制で当てる。当てた機器があれば $true
+# 標準の HidBth より優先されないことがあるので強制で当てる。当てた機器があれば $script:BthApplied を $true にする
+# （Info の行も出力に流れるので、結果は戻り値ではなく変数で返す）
 function Set-BluetoothDriver([string]$PublishedInf) {
     $inf = Join-Path $env:windir "INF\$PublishedInf"
     $applied = $false
@@ -85,10 +86,11 @@ function Set-BluetoothDriver([string]$PublishedInf) {
             $applied = $true
         }
     }
-    return $applied
+    $script:BthApplied = $applied
 }
 
-# MtpBth のパッケージを取り除く（当たっている機器は Windows 標準の HidBth に戻る）。取り除けなかった公開名を返す
+# MtpBth のパッケージを取り除く（当たっている機器は Windows 標準の HidBth に戻る）。
+# 取り除けなかった公開名を $script:BthRemoveFailed に入れる（Info の行も出力に流れるので、戻り値にはしない）
 function Remove-BluetoothDriver {
     $failed = @()
     foreach ($pkg in @(Get-MtpDriverPackages $BthInfName)) {
@@ -102,7 +104,7 @@ function Remove-BluetoothDriver {
             $failed += $pkg
         }
     }
-    return $failed
+    $script:BthRemoveFailed = $failed
 }
 
 # 常駐アプリにトレイのメニューの「終了」と同じ指示（WM_COMMAND / IDM_EXIT=104）を送り、設定画面は閉じる。
@@ -352,7 +354,8 @@ function Install-Mtp {
             }
             if ($code -ne 0 -and $code -ne 3010) { throw "Bluetooth のドライバーを導入できませんでした（pnputil の終了コード $code）" }
             if (-not $bthPublished) { throw 'Bluetooth のドライバーパッケージの公開名を確かめられませんでした' }
-            if (-not (Set-BluetoothDriver $bthPublished)) {
+            Set-BluetoothDriver $bthPublished
+            if (-not $script:BthApplied) {
                 Warn 'ペアリング済みの Magic Trackpad が見つからないため、ドライバーは登録だけしました。ペアリングしてから、もう一度導入してください'
             }
         }
@@ -418,7 +421,8 @@ function Install-Mtp {
         }
         else {
             # Bluetooth を選ばなかった: 以前に入れた MtpBth（spike.ps1 で入れたものも）を外し、標準の HidBth に戻す
-            foreach ($p in @(Remove-BluetoothDriver)) { Warn "Bluetooth のドライバーパッケージを取り除けませんでした: $p" }
+            Remove-BluetoothDriver
+            foreach ($p in @($script:BthRemoveFailed)) { Warn "Bluetooth のドライバーパッケージを取り除けませんでした: $p" }
         }
         $keep = if ($trustRoot) { $cert.Thumbprint } else { '' }
         Remove-InstallerCertificates -Keep $keep -Also @($oldThumb)
@@ -498,7 +502,13 @@ function Uninstall-Mtp {
     Remove-MtpService
 
     Step 'Bluetooth のドライバー（MtpBth）を外しています'
-    $failedBth = @(Remove-BluetoothDriver)
+    $hadBth = @(Get-MtpDriverPackages $BthInfName).Count -gt 0
+    Remove-BluetoothDriver
+    $failedBth = @($script:BthRemoveFailed)
+    if ($hadBth -and $failedBth.Count -eq 0) {
+        # 切り替えで Bluetooth の接続が切れる。標準のドライバーには自分からつなぎ直す仕組みがない（実機、2026-11-18）
+        Info 'Bluetooth のトラックパッドは、1 回クリックすると Windows 標準のマウスとしてつながり直します'
+    }
     if ($failedBth.Count -gt 0) {
         # 署名の信頼を外すと、残った MtpBth が使えなくなる。ここで止めて、ほかは残す
         throw "Bluetooth のドライバーパッケージを取り除けませんでした（$($failedBth -join ', ')）。" +
