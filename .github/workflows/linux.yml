@@ -1,0 +1,36 @@
+# Build the Linux version (linux/) on GitHub's Ubuntu runner and run its unit tests.
+# The tests do not need a trackpad: they cover report parsing, gestures, inertia and settings parsing.
+name: linux
+
+on:
+  push:
+    branches: ['**']
+    paths: ['linux/**', 'core/**', 'agent/mtp_gesture.*', 'agent/mtp_momentum.*', 'agent/tests/**', '.github/workflows/linux.yml']
+  pull_request:
+    paths: ['linux/**', 'core/**', 'agent/mtp_gesture.*', 'agent/mtp_momentum.*', 'agent/tests/**', '.github/workflows/linux.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake ninja-build qt6-base-dev
+
+      - name: Configure
+        run: cmake -S linux -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Install (staging)
+        run: DESTDIR="$PWD/stage" cmake --install build && find stage -type f | sort
