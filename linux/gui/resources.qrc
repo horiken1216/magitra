@@ -1,0 +1,9 @@
+<RCC>
+    <qresource prefix="/">
+        <file alias="magitra.png">../data/magitra.png</file>
+        <file alias="tray-light.png">../data/magitra-tray-light.png</file>
+        <file alias="tray-light-idle.png">../data/magitra-tray-light-idle.png</file>
+        <file alias="tray-dark.png">../data/magitra-tray-dark.png</file>
+        <file alias="tray-dark-idle.png">../data/magitra-tray-dark-idle.png</file>
+    </qresource>
+</RCC>

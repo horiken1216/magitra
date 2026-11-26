@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=MAGITRA 設定
+Name[ja]=MAGITRA 設定
+Comment=Magic Trackpad の設定
+Exec=magitra-gui --settings
+Icon=magitra
+Terminal=false
+Categories=Settings;HardwareSettings;

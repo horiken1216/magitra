@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=MAGITRA 常駐アプリ
+Comment=Magic Trackpad のジェスチャーを処理する
+Exec=magitrad
+Terminal=false
+NoDisplay=true
