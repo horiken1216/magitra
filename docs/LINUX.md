@@ -4,7 +4,7 @@ Linux では、カーネルの hid-magicmouse が USB と Bluetooth のどちら
 MAGITRA の Linux 版は、トラックパッドの生レポートを hidraw から読み、Windows 版と同じ解析・ジェスチャー・慣性のコード（`core/`・`agent/mtp_gesture.c`・`agent/mtp_momentum.c`）で処理して、
 uinput で作った仮想のポインターとキーボードから入力を送る。ドライバーの差し替えも署名も要らず、**Bluetooth でもそのまま使える**。
 
-**実機での確認はまだ**（GitHub Actions の Ubuntu でビルドと単体テストだけ確かめている）。
+**Lubuntu 26.04（LXQt 版）と Magic Trackpad で、USB・Bluetooth の両方を実機で確認した**（2026-11-27）。ほかのディストリビューション・デスクトップ環境は、GitHub Actions の Ubuntu 24.04・26.04 でビルド・単体テスト・.deb の導入を確かめただけ。
 
 ## 構成
 
@@ -84,3 +84,18 @@ udev の `uaccess` でログイン中のユーザーに `/dev/uinput` を渡す�
   速すぎるときは、デスクトップのマウスの設定で「MAGITRA pointer」の加速を「なし（flat）」にし、MAGITRA 側の速さ・加速で合わせる
 - **ロック画面でも動く**: uinput の入力はロック画面にも届く。一時停止すると（トレイの「終了」も一時停止する）、カーネルの hid-magicmouse の動きに戻る
 - **管理者権限のウィンドウ**: Linux には UIPI に当たる仕組みがないので、UIAccess 版のような区別はない
+
+## 困ったとき
+
+実機の確認で実際に起きたこと。
+
+- **トレイのアイコンが出ない・メニューやランチャーのジェスチャーが効かない**: `magitra-gui` を root（`sudo` や `sudo -s` の中）で起動していないか。
+  常駐サービスはログイン中のユーザーからの接続しか受け付けないので、root では起動しない（理由を出して終わる）。普通のユーザーのまま起動する。
+  3 本指の上（メニュー）・4 本指の上（ランチャー）など、トレイが要る操作は、トレイがつながっていないと何も起きない
+  （`magitrad --log` に「トレイ（magitra-gui）がつながっていないので何も起きない」と出る）
+- **Bluetooth でつないでも MAGITRA が使わない・ポインターも動かない**: OS の Bluetooth の画面では「接続済み」でも、入力デバイスとしてつながっていないことがある
+  （USB ケーブルでつないだあと Bluetooth に戻したときに起きた）。`ls -l /sys/class/hidraw/*/device` に `0005:004C:0265` のような行がなければこれ。
+  Bluetooth の設定でトラックパッドを削除し、トラックパッドの電源を入れ直してから、ペアリング・信頼・接続をやり直す
+- **`sudo magitrad --log` が「/run/magitra/agent.sock を待ち受けできません」で止まる**: 古い版。`/run/magitra` はサービスを止めると消える。
+  今の版は自分で作る。古い版なら `sudo mkdir -p /run/magitra` してから起動する
+- **パネルの別のアイコンを押して「使用可能なデバイスがありません」と出る**: LXQt のリムーバブルメディアのアイコン。MAGITRA のアイコンは虎
