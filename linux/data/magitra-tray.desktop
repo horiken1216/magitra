@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=MAGITRA
+Comment=Magic Trackpad のトレイアイコン
+Exec=magitra-gui
+Icon=magitra
+Terminal=false
+NoDisplay=true

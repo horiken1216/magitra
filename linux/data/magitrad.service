@@ -1,0 +1,50 @@
+[Unit]
+Description=MAGITRA 常駐サービス（Magic Trackpad のジェスチャー処理）
+
+[Service]
+Type=simple
+ExecStart=@CMAKE_INSTALL_FULL_BINDIR@/magitrad
+Restart=on-failure
+
+# root で動くが capability は一切持たない。root 所有の 0600 のデバイスノードは capability なしで開ける
+CapabilityBoundingSet=
+AmbientCapabilities=
+NoNewPrivileges=yes
+
+# ファイルシステムは読み取り専用、$HOME は見えない（設定は GUI が CONFIG で送ってくる）
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+# ネットワークは不要。ソケットは AF_UNIX だけ
+PrivateNetwork=yes
+RestrictAddressFamilies=AF_UNIX
+
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+LockPersonality=yes
+# JIT を使わないので書き込み可能かつ実行可能なメモリを禁じる
+MemoryDenyWriteExecute=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+RestrictSUIDSGID=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+UMask=0077
+
+# 開けるデバイスは hidraw・input・uinput だけ
+DevicePolicy=closed
+DeviceAllow=char-hidraw rw
+DeviceAllow=char-input rw
+DeviceAllow=/dev/uinput rw
+
+# /run/magitra を作る。agent.sock は 0666 で、使える相手は接続ごとに daemon が確かめる
+RuntimeDirectory=magitra
+RuntimeDirectoryMode=0755
+
+[Install]
+WantedBy=multi-user.target
