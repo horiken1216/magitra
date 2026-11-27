@@ -32,8 +32,8 @@ sudo cmake --install build
 sudo udevadm control --reload && sudo udevadm trigger
 ```
 
-`CMAKE_INSTALL_PREFIX=/usr` にすると、udev ルールは `/usr/lib/udev/rules.d`、自動起動は `/etc/xdg/autostart` に入る。
-`/usr/local` に入れる場合は、udev と自動起動が読む場所に入るよう `-DMAGITRA_UDEV_DIR=/etc/udev/rules.d -DMAGITRA_AUTOSTART_DIR=/etc/xdg/autostart` を付ける。
+udev ルールは `/usr/lib/udev/rules.d`、自動起動は `/etc/xdg/autostart` に入る（udev と XDG autostart はここしか読まないので、`CMAKE_INSTALL_PREFIX` に関係なくこの場所。
+変えるときは `-DMAGITRA_UDEV_DIR=…`・`-DMAGITRA_AUTOSTART_DIR=…`）。
 GUI が要らなければ `-DMAGITRA_BUILD_GUI=OFF`。
 
 導入したらログインし直す（または `magitrad &` と `magitra-gui &` を起動する）。トレイに虎のアイコンが出れば動いている。

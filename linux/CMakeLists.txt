@@ -15,8 +15,9 @@ add_compile_options(
     "$<$<COMPILE_LANGUAGE:C>:-D_GNU_SOURCE>")
 
 set(MAGITRA_DEFAULT_PROFILE "generic" CACHE STRING "既定のキー割り当ての表（generic）")
-set(MAGITRA_UDEV_DIR "${CMAKE_INSTALL_PREFIX}/lib/udev/rules.d" CACHE PATH "udev ルールの置き場所")
-set(MAGITRA_AUTOSTART_DIR "${CMAKE_INSTALL_FULL_SYSCONFDIR}/xdg/autostart" CACHE PATH "XDG 自動起動の .desktop の置き場所")
+# udev と XDG autostart は決まった場所しか読まないので、インストール先の prefix（/usr/local など）に関係なくここに入れる
+set(MAGITRA_UDEV_DIR "/usr/lib/udev/rules.d" CACHE PATH "udev ルールの置き場所")
+set(MAGITRA_AUTOSTART_DIR "/etc/xdg/autostart" CACHE PATH "XDG 自動起動の .desktop の置き場所")
 option(MAGITRA_BUILD_GUI "magitra-gui（Qt6）をビルドする" ON)
 
 enable_testing()
