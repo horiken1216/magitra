@@ -5,6 +5,7 @@
 #define _GNU_SOURCE
 #endif
 #include "device.h"
+#include "pathprefix.h"
 
 #include <dirent.h>
 #include <errno.h>
@@ -26,6 +27,7 @@ typedef struct CANDIDATE {
     int bus, vid, pid;
     int ifnum;               /* USB のインターフェイス番号（BT は -1） */
     char usbdev[PATH_MAX];   /* USB: インターフェイスの親（同じ機器か見分ける） */
+    char sysdir[PATH_MAX];   /* USB: usbdev、BT: HID デバイスのディレクトリ */
 } CANDIDATE;
 
 static long long NowMs(void)
@@ -92,6 +94,7 @@ static int Collect(CANDIDATE *out, int max)
         c->vid = (int)vid;
         c->pid = (int)pid;
         c->ifnum = -1;
+        snprintf(c->sysdir, sizeof(c->sysdir), "%s", hiddir);
         if (bus == 0x0003) {
             /* HID の親が USB インターフェイス "<port>:<cfg>.<ifnum>"、その親が機器 */
             const char *dot;
@@ -103,6 +106,7 @@ static int Collect(CANDIDATE *out, int max)
             c->ifnum = atoi(dot + 1);
             *strrchr(parent, '/') = '\0';
             snprintf(c->usbdev, sizeof(c->usbdev), "%s", parent);
+            snprintf(c->sysdir, sizeof(c->sysdir), "%s", parent);
         }
         n++;
     }
@@ -117,14 +121,25 @@ static int OpenHidraw(int num)
     return open(path, O_RDWR | O_NONBLOCK | O_CLOEXEC);
 }
 
+static void SendEnable(MAGITRA_DEVICE *d)
+{
+    const uint8_t *report;
+    size_t length;
+    uint8_t buf[64];
+
+    if (MtpGetEnableReport(d->transport, &report, &length) == MTP_OK && length <= sizeof(buf)) {
+        memcpy(buf, report, length);
+        if (ioctl(d->mt_fd, HIDIOCSFEATURE(length), buf) < 0) {
+            fprintf(stderr, "magitrad: 有効化レポートを送れませんでした: %s\n", strerror(errno));
+        }
+    }
+}
+
 int DeviceOpen(MAGITRA_DEVICE *d)
 {
     CANDIDATE cand[MAX_CANDIDATES];
     int n = Collect(cand, MAX_CANDIDATES);
     const CANDIDATE *mt = NULL, *act = NULL;
-    const uint8_t *report;
-    size_t length;
-    uint8_t buf[64];
     int i;
 
     /* USB を優先。マルチタッチは interface 1、振動は同じ機器の interface 2 */
@@ -154,6 +169,9 @@ int DeviceOpen(MAGITRA_DEVICE *d)
     d->bustype = mt->bus;
     d->vendor = mt->vid;
     d->product = mt->pid;
+    snprintf(d->sysdir, sizeof(d->sysdir), "%s", mt->sysdir);
+    d->got_frame = 0;
+    d->enable_warned = 0;
     if (d->kind == DEVICE_BT) {
         d->haptic_fd = d->mt_fd;
     } else if (act != NULL) {
@@ -161,13 +179,23 @@ int DeviceOpen(MAGITRA_DEVICE *d)
     }
 
     /* マルチタッチモードへ。失敗しても続ける（カーネルが先に切り替えていることがある） */
-    if (MtpGetEnableReport(d->transport, &report, &length) == MTP_OK && length <= sizeof(buf)) {
-        memcpy(buf, report, length);
-        if (ioctl(d->mt_fd, HIDIOCSFEATURE(length), buf) < 0) {
-            fprintf(stderr, "magitrad: 有効化レポートを送れませんでした: %s\n", strerror(errno));
-        }
-    }
+    d->last_enable_ms = NowMs();
+    SendEnable(d);
     return 0;
+}
+
+void DeviceEnsureEnabled(MAGITRA_DEVICE *d)
+{
+    long long now;
+    if (d->kind == DEVICE_NONE || d->got_frame) return;
+    now = NowMs();
+    if (now - d->last_enable_ms < 3000) return;
+    if (!d->enable_warned) {
+        fprintf(stderr, "magitrad: 接続から 3 秒たってもフレームが来ません。有効化レポートを送り直します\n");
+        d->enable_warned = 1;
+    }
+    d->last_enable_ms = now;
+    SendEnable(d);
 }
 
 void DeviceClose(MAGITRA_DEVICE *d)
@@ -177,6 +205,8 @@ void DeviceClose(MAGITRA_DEVICE *d)
     if (d->mt_fd >= 0) close(d->mt_fd);
     d->mt_fd = d->haptic_fd = -1;
     d->kind = DEVICE_NONE;
+    d->got_frame = 0;
+    d->enable_warned = 0;
 }
 
 DEVICE_READ DeviceRead(MAGITRA_DEVICE *d, MTP_FRAME *frame)
@@ -192,6 +222,7 @@ DEVICE_READ DeviceRead(MAGITRA_DEVICE *d, MTP_FRAME *frame)
     if (n == 0) return DEVICE_READ_AGAIN;
     if (buf[0] != MtpInputReportId(d->transport)) return DEVICE_READ_IGNORED;
     if (MtpParseReport(d->transport, buf, (size_t)n, frame) != MTP_OK) return DEVICE_READ_IGNORED;
+    d->got_frame = 1;
     return DEVICE_READ_FRAME;
 }
 
@@ -210,8 +241,12 @@ void DeviceGrabScan(MAGITRA_DEVICE *d)
     struct dirent *ent;
 
     if (dir == NULL) return;
+    if (!d->got_frame) { /* 有効化に失敗していると、占有だけが残ってトラックパッドが止まる */
+        closedir(dir);
+        return;
+    }
     while ((ent = readdir(dir)) != NULL) {
-        char path[PATH_MAX];
+        char path[PATH_MAX], real[PATH_MAX];
         int num, bus, vid, pid, i, fd;
 
         if (sscanf(ent->d_name, "event%d", &num) != 1 || IsGrabbed(d, num)) continue;
@@ -221,6 +256,9 @@ void DeviceGrabScan(MAGITRA_DEVICE *d)
         if (ReadHex(path, &vid) != 0) continue;
         snprintf(path, sizeof(path), "/sys/class/input/%s/device/id/product", ent->d_name);
         if (ReadHex(path, &pid) != 0) continue;
+        /* 同じ型の別の機器は、hidraw を読んでいない（占有すると止まる）ので sysfs の位置で絞る */
+        snprintf(path, sizeof(path), "/sys/class/input/%s/device", ent->d_name);
+        if (realpath(path, real) == NULL || !MagitraPathUnder(real, d->sysdir)) continue;
         if (bus != d->bustype || vid != d->vendor || pid != d->product) continue; /* 自前の uinput は ID が違うので当たらない */
 
         for (i = 0; i < DEVICE_MAX_GRABS && d->grab_fd[i] >= 0; i++) {

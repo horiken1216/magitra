@@ -23,6 +23,7 @@ static void RunBinding(MAGITRA_UINPUT *u, const char *text, int action)
         ActionForward(action); /* コマンドはデーモンでは実行せず、ユーザー側のトレイに任せる */
         return;
     }
+    if (!ActionSessionOk()) return;
     for (i = 0; i < b.nkeys; i++) UinputKey(u, b.keys[i], 1);
     for (i = b.nkeys - 1; i >= 0; i--) UinputKey(u, b.keys[i], 0);
 }

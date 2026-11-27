@@ -1,5 +1,5 @@
 # 設定と割り当ての解析は /dev に触れないので、単体テストのためライブラリに分ける
-add_library(magitrad_settings STATIC settings.c binding.c)
+add_library(magitrad_settings STATIC settings.c binding.c pathprefix.c)
 target_include_directories(magitrad_settings PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 target_compile_definitions(magitrad_settings PUBLIC MAGITRA_DEFAULT_PROFILE="${MAGITRA_DEFAULT_PROFILE}")
 target_link_libraries(magitrad_settings PUBLIC magitra_common)

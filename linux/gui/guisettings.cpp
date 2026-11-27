@@ -133,6 +133,7 @@ static bool isKeyToken(const QString &t)
 bool isValidBinding(const QString &text)
 {
     const QString s = text.trimmed();
+    if (s.toUtf8().size() > 3500) return false; // デーモンへ送る 1 行（4096 バイトまで）に収める
     if (s.startsWith(QLatin1String("exec:"))) return !s.mid(5).trimmed().isEmpty();
     const QStringList tokens = s.toLower().split(QLatin1Char('+'));
     int keys = 0;

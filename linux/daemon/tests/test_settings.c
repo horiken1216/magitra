@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "pathprefix.h"
 #include "settings.h"
 
 static int g_failed = 0;
@@ -145,6 +146,43 @@ static void test_path(void)
     CHECK(MagitraSettingsPath(p, sizeof(p)) == 0 && strcmp(p, "/home/u/.config/magitra/agent.conf") == 0);
 }
 
+static void test_pathprefix(void)
+{
+    CHECK(MagitraPathUnder("/sys/d/1-2", "/sys/d/1-2") == 1);
+    CHECK(MagitraPathUnder("/sys/d/1-2/1-2:1.1/input/input5", "/sys/d/1-2") == 1);
+    CHECK(MagitraPathUnder("/sys/d/1-2/", "/sys/d/1-2") == 1);
+    CHECK(MagitraPathUnder("/sys/d/1-20/x", "/sys/d/1-2") == 0);
+    CHECK(MagitraPathUnder("/sys/d/1-2x", "/sys/d/1-2") == 0);
+    CHECK(MagitraPathUnder("/sys/d", "/sys/d/1-2") == 0);
+    CHECK(MagitraPathUnder("/sys/d/1-2/x", "/sys/d/1-2/") == 1);
+    CHECK(MagitraPathUnder("/sys/d/1-2", "") == 0);
+    CHECK(MagitraPathUnder(NULL, "/a") == 0 && MagitraPathUnder("/a", NULL) == 0);
+}
+
+static void test_long_exec(void)
+{
+    MAGITRA_SETTINGS s;
+    char text[2048];
+    char longexec[1200], longkey[1200];
+    const char *b;
+
+    memset(longexec, 'x', sizeof(longexec));
+    memcpy(longexec, "exec:", 5);
+    longexec[sizeof(longexec) - 1] = '\0';
+    memset(longkey, 'a', sizeof(longkey));
+    memcpy(longkey, "ctrl+", 5);
+    longkey[sizeof(longkey) - 1] = '\0';
+
+    snprintf(text, sizeof(text), "Key.TaskView=%s\n", longexec);
+    MagitraSettingsParse(&s, text);
+    b = MagitraSettingsBinding(&s, MAGITRA_ACTION_TASK_VIEW);
+    CHECK(strncmp(b, "exec:xxx", 8) == 0 && strlen(b) < MAGITRA_BINDING_MAX_LEN);
+
+    snprintf(text, sizeof(text), "Key.TaskView=%s\n", longkey);
+    MagitraSettingsParse(&s, text);
+    CHECK(strncmp(MagitraSettingsBinding(&s, MAGITRA_ACTION_TASK_VIEW), "ctrl+aaa", 8) != 0);
+}
+
 int main(void)
 {
     test_defaults();
@@ -152,6 +190,8 @@ int main(void)
     test_clamp();
     test_binding();
     test_path();
+    test_pathprefix();
+    test_long_exec();
     printf("%d checks, %d failed\n", g_checks, g_failed);
     return g_failed ? 1 : 0;
 }

@@ -35,7 +35,7 @@
 
 #define VERSION "0.1.0"
 #define MAX_CLIENTS 8
-#define CLIENT_BUF 256
+#define CLIENT_BUF 4096 /* GUI は 3500 バイトまでの割り当てしか書かない（CONFIG の 1 行が収まる） */
 #define CONFIG_MAX (64 * 1024)
 #define DEFAULT_SOCKET "/run/magitra/agent.sock"
 
@@ -43,6 +43,7 @@ typedef struct CLIENT {
     int fd;
     char buf[CLIENT_BUF];
     size_t len;
+    uid_t uid;         /* 接続時の相手のユーザー。ACTION はアクティブなユーザーの購読者にだけ送る */
     int subscribed;
     int in_config;     /* CONFIG の本文を読んでいる途中 */
     int config_big;    /* 本文が CONFIG_MAX を超えた */
@@ -59,6 +60,8 @@ static MAGITRA_UINPUT g_ui;
 static CLIENT g_clients[MAX_CLIENTS];
 static char g_sock_path[sizeof(((struct sockaddr_un *)0)->sun_path)] = DEFAULT_SOCKET;
 static long g_active_uid = -1; /* seat0 のアクティブなセッションのユーザー。いなければ -1 */
+static char g_active_session[64]; /* そのセッション ID。いなければ空 */
+static sd_login_monitor *g_login_mon;
 static int g_inertia_fd = -1;
 static int g_listen_fd = -1;
 static int g_paused = 0;
@@ -196,12 +199,49 @@ static long ActiveUid(void)
     return (long)uid;
 }
 
-static int PeerAuthorized(int fd)
+/* アクティブなセッションとユーザーを調べ直す。どちらかが変わっていれば 1（同じユーザーの別セッションも切り替えとみなす） */
+static int RefreshActive(void)
+{
+    char *session = NULL;
+    uid_t uid;
+    long active = -1;
+    char sid[sizeof(g_active_session)] = "";
+    int changed;
+
+    if (sd_seat_get_active("seat0", &session, &uid) >= 0) {
+        active = (long)uid;
+        if (session != NULL) snprintf(sid, sizeof(sid), "%s", session);
+    }
+    free(session);
+    changed = active != g_active_uid || strcmp(sid, g_active_session) != 0;
+    g_active_uid = active;
+    memcpy(g_active_session, sid, sizeof(sid));
+    return changed;
+}
+
+static void ResetForUserChange(void);
+
+/* 切り替わっていたら初期化して 1 */
+static int CheckUserChange(void)
+{
+    if (!RefreshActive()) return 0;
+    ResetForUserChange();
+    return 1;
+}
+
+/* キー操作を打つ前に呼ぶ。直前にセッションが切り替わっていたら初期化して 0（操作は捨てる） */
+int ActionSessionOk(void)
+{
+    return !CheckUserChange();
+}
+
+static int PeerAuthorized(int fd, uid_t *peer)
 {
     struct ucred cred;
     socklen_t len = sizeof(cred);
     long active = ActiveUid();
     if (getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &cred, &len) != 0) return 0;
+    if (peer != NULL) *peer = cred.uid;
     return active >= 0 && (long)cred.uid == active;
 }
 
@@ -211,7 +251,7 @@ void ActionForward(int action)
     char line[32];
     int i, n = snprintf(line, sizeof(line), "ACTION %d\n", action);
     for (i = 0; i < MAX_CLIENTS; i++) {
-        if (g_clients[i].fd >= 0 && g_clients[i].subscribed) {
+        if (g_clients[i].fd >= 0 && g_clients[i].subscribed && g_active_uid >= 0 && (long)g_clients[i].uid == g_active_uid) {
             send(g_clients[i].fd, line, (size_t)n, MSG_NOSIGNAL | MSG_DONTWAIT);
         }
     }
@@ -234,20 +274,15 @@ static void HandleFrame(const MTP_FRAME *f)
     Dispatch(ev, MtpGestureProcessAt(&g_gesture, f, now, ev, MTP_GESTURE_MAX_EVENTS));
 }
 
-static void ResetForUserChange(void);
-
 static void OnRetryTimer(void)
 {
-    long active = ActiveUid();
-    if (active != g_active_uid) {
-        g_active_uid = active;
-        ResetForUserChange();
-    }
+    CheckUserChange(); /* sd-login の通知が主。これは取りこぼしへの保険 */
     if (g_dev.kind == DEVICE_NONE) {
         if (DeviceOpen(&g_dev) != 0) return;
         MtpGestureInit(&g_gesture, &g_cfg);
         fprintf(stderr, "magitrad: トラックパッドに接続しました（%s）\n", g_dev.kind == DEVICE_USB ? "USB" : "Bluetooth");
     }
+    DeviceEnsureEnabled(&g_dev);
     if (!g_paused) DeviceGrabScan(&g_dev);
 }
 
@@ -398,7 +433,7 @@ static void OnClientReadable(CLIENT *c)
         size_t used = (size_t)(nl - c->buf) + 1;
         *nl = '\0';
         if (nl > c->buf && nl[-1] == '\r') nl[-1] = '\0';
-        if (!PeerAuthorized(c->fd)) {
+        if (!PeerAuthorized(c->fd, NULL)) {
             send(c->fd, "ERR denied\n", 11, MSG_NOSIGNAL);
             CloseClient(c);
             return;
@@ -428,9 +463,10 @@ static void OnClientReadable(CLIENT *c)
 static void OnAccept(void)
 {
     int fd = accept4(g_listen_fd, NULL, NULL, SOCK_NONBLOCK | SOCK_CLOEXEC);
+    uid_t uid = 0;
     int i;
     if (fd < 0) return;
-    if (!PeerAuthorized(fd)) {
+    if (!PeerAuthorized(fd, &uid)) {
         send(fd, "ERR denied\n", 11, MSG_NOSIGNAL);
         close(fd);
         return;
@@ -439,6 +475,7 @@ static void OnAccept(void)
         if (g_clients[i].fd < 0) {
             g_clients[i].fd = fd;
             g_clients[i].len = 0;
+            g_clients[i].uid = uid;
             return;
         }
     }
@@ -484,7 +521,7 @@ static int Listen(void)
 
 /* ---- 主ループ ---- */
 
-enum { P_SIGNAL, P_LISTEN, P_INERTIA, P_RETRY, P_MT, P_GRAB, P_CLIENT = P_GRAB + DEVICE_MAX_GRABS, P_COUNT = P_CLIENT + MAX_CLIENTS };
+enum { P_SIGNAL, P_LISTEN, P_INERTIA, P_RETRY, P_LOGIN, P_MT, P_GRAB, P_CLIENT = P_GRAB + DEVICE_MAX_GRABS, P_COUNT = P_CLIENT + MAX_CLIENTS };
 
 static void Drain(int fd)
 {
@@ -543,7 +580,11 @@ int main(int argc, char **argv)
     MagitraSettingsDefaults(&g_set);
     ApplySettings();
     MtpGestureInit(&g_gesture, &g_cfg);
-    g_active_uid = ActiveUid();
+    RefreshActive();
+    if (sd_login_monitor_new("session", &g_login_mon) < 0) {
+        fprintf(stderr, "magitrad: ログインの変化を監視できません。1 秒ごとの確認だけで動きます\n");
+        g_login_mon = NULL;
+    }
 
     memset(&retry, 0, sizeof(retry));
     retry.it_interval.tv_sec = 1;
@@ -561,6 +602,7 @@ int main(int argc, char **argv)
         pfds[P_LISTEN].fd = g_listen_fd;
         pfds[P_INERTIA].fd = g_inertia_fd;
         pfds[P_RETRY].fd = retry_fd;
+        pfds[P_LOGIN].fd = g_login_mon != NULL ? sd_login_monitor_get_fd(g_login_mon) : -1;
         pfds[P_MT].fd = g_dev.mt_fd;
         for (k = 0; k < DEVICE_MAX_GRABS; k++) pfds[P_GRAB + k].fd = g_dev.grab_fd[k];
         for (k = 0; k < MAX_CLIENTS; k++) pfds[P_CLIENT + k].fd = g_clients[k].fd;
@@ -581,6 +623,10 @@ int main(int argc, char **argv)
         if (pfds[P_RETRY].revents & POLLIN) {
             Drain(retry_fd);
             OnRetryTimer();
+        }
+        if (pfds[P_LOGIN].revents & POLLIN) {
+            sd_login_monitor_flush(g_login_mon);
+            CheckUserChange();
         }
         if (pfds[P_INERTIA].revents & POLLIN) {
             Drain(g_inertia_fd);
@@ -615,6 +661,7 @@ int main(int argc, char **argv)
     for (i = 0; i < MAX_CLIENTS; i++) {
         if (g_clients[i].fd >= 0) CloseClient(&g_clients[i]);
     }
+    sd_login_monitor_unref(g_login_mon);
     close(g_listen_fd);
     unlink(g_sock_path);
     return 0;

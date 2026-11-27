@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 #define POINTER_GAIN_BASE 0.12f
 #define SCROLL_GAIN_BASE  0.6f
@@ -213,8 +214,18 @@ static void ApplyLine(MAGITRA_SETTINGS *s, int *explicit_keys, const char *name,
         for (i = 0; i < MAGITRA_KEY_ACTIONS; i++) {
             if (strcmp(name + 4, kKeyActions[i].name) == 0) {
                 /* 空や書式の誤りは無視して既定のままにする */
-                if (MagitraBindingParse(value, &b) == 0) {
-                    SetString(s->binding[i], sizeof(s->binding[i]), value);
+                char text[MAGITRA_BINDING_MAX_LEN];
+                size_t n = strlen(value);
+                /* デーモンは exec: のコマンドを実行しない（種類を知るだけ）ので、長いものは切り詰めて持つ。
+                 * 切り詰めるのは先頭が "exec:" のときだけ。キー指定を切ると別のキーになりうるので長すぎれば無視する */
+                if (n >= sizeof(text)) {
+                    if (strncasecmp(value, "exec:", 5) != 0) return;
+                    n = sizeof(text) - 1;
+                }
+                memcpy(text, value, n);
+                text[n] = '\0';
+                if (MagitraBindingParse(text, &b) == 0) {
+                    SetString(s->binding[i], sizeof(s->binding[i]), text);
                     explicit_keys[i] = 1;
                 }
                 return;
@@ -234,7 +245,7 @@ void MagitraSettingsParse(MAGITRA_SETTINGS *s, const char *text)
     while (p != NULL && *p != '\0') {
         const char *nl = strchr(p, '\n');
         size_t len = nl ? (size_t)(nl - p) : strlen(p);
-        char line[2 * MAGITRA_BINDING_MAX_LEN];
+        char line[4096]; /* CLIENT_BUF（main.c）と同じ。GUI は 3500 バイトまでの割り当てしか書かない */
         if (len < sizeof(line)) {
             char *name, *value, *eq;
             memcpy(line, p, len);
