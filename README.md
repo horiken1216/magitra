@@ -32,7 +32,7 @@ USB でつないだトラックパッドから指ごとの位置と圧力を直�
 
 ## 必要なもの
 
-- Windows 10 / 11（x64）
+- Windows 10 / 11（x64）。Linux 版もある（[LINUX.md](docs/LINUX.md)）
 - Magic Trackpad（Lightning の第 3 世代で確認済み。Magic Trackpad 2 と USB-C の第 4 世代は未確認）と、データ通信ができる USB ケーブル
 - 導入時の管理者権限
 
@@ -69,6 +69,7 @@ VirusTotal の結果へのリンクを載せています。気になる場合は
 |---|---|
 | [docs/INSTALL.md](docs/INSTALL.md) | 導入と取り除き、対応機種、困ったとき、できないこと |
 | [docs/USAGE.md](docs/USAGE.md) | 使い方（トレイ、設定画面、指の操作、ランチャー） |
+| [docs/LINUX.md](docs/LINUX.md) | Linux 版（hidraw と uinput で動く常駐アプリと Qt の設定画面。Bluetooth もそのまま使える。実機未確認） |
 | [docs/BLUETOOTH.md](docs/BLUETOOTH.md) | Bluetooth 接続（詳細設定）: 引き換えになるもの、テスト署名モードの手順、やめるとき |
 | [docs/BUILD.md](docs/BUILD.md) | ビルドとテスト、フォルダーの構成 |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 仕組みと、そうした理由 |
