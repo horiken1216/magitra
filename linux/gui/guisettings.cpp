@@ -99,8 +99,73 @@ static const Profile *findProfile(const QString &name)
     return nullptr;
 }
 
+QString fromQtKeySequence(const QString &seq)
+{
+    QStringList out;
+    for (const QString &raw : seq.split(QLatin1Char('+'), Qt::SkipEmptyParts)) {
+        const QString t = raw.trimmed().toLower();
+        if (t == QLatin1String("meta") || t == QLatin1String("super_l") || t == QLatin1String("super_r")) out << QStringLiteral("super");
+        else if (t == QLatin1String("control")) out << QStringLiteral("ctrl");
+        else if (t == QLatin1String("esc")) out << QStringLiteral("escape");
+        else out << t;
+    }
+    const QString s = out.join(QLatin1Char('+'));
+    return (!s.isEmpty() && isValidBinding(s)) ? s : QString();
+}
+
+QString lxqtGlobalShortcut(const QStringList &paths)
+{
+    QStringList files;
+    QString home = qEnvironmentVariable("XDG_CONFIG_HOME");
+    if (home.isEmpty()) home = QDir::homePath() + QStringLiteral("/.config");
+    files << home + QStringLiteral("/lxqt/globalkeyshortcuts.conf");
+    QString dirs = qEnvironmentVariable("XDG_CONFIG_DIRS");
+    if (dirs.isEmpty()) dirs = QStringLiteral("/etc/xdg");
+    for (const QString &d : dirs.split(QLatin1Char(':'), Qt::SkipEmptyParts)) files << d + QStringLiteral("/lxqt/globalkeyshortcuts.conf");
+
+    for (const QString &name : files) {
+        QFile f(name);
+        if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) continue;
+        /* 最初に見つかった 1 つだけを使う（lxqt-globalkeys と同じ）。節は [<キー（URL エンコード）>.<番号>] */
+        QString key, path;
+        bool enabled = true;
+        auto take = [&]() -> QString {
+            if (!key.isEmpty() && enabled && paths.contains(path)) return fromQtKeySequence(key);
+            return QString();
+        };
+        while (!f.atEnd()) {
+            const QString line = QString::fromUtf8(f.readLine()).trimmed();
+            if (line.startsWith(QLatin1Char('[')) && line.endsWith(QLatin1Char(']'))) {
+                const QString found = take();
+                if (!found.isEmpty()) return found;
+                QString sec = line.mid(1, line.size() - 2);
+                const int dot = sec.lastIndexOf(QLatin1Char('.'));
+                key = (dot > 0 && sec != QLatin1String("General")) ? QUrl::fromPercentEncoding(sec.left(dot).toUtf8()) : QString();
+                path.clear();
+                enabled = true;
+            } else if (line.startsWith(QLatin1String("path="))) {
+                path = line.mid(5).trimmed();
+            } else if (line.startsWith(QLatin1String("Enabled="))) {
+                enabled = line.mid(8).trimmed().compare(QLatin1String("false"), Qt::CaseInsensitive) != 0;
+            }
+        }
+        return take();
+    }
+    return QString();
+}
+
 QString defaultBinding(const QString &profile, const QString &actionName)
 {
+    if (profile == QLatin1String("lxqt")) {
+        /* LXQt はパネルのメニュー（標準のメインメニューか、Lubuntu などの fancymenu）とデスクトップの表示を lxqt-globalkeys に持つ */
+        QString found;
+        if (actionName == QLatin1String("TaskView")) {
+            found = lxqtGlobalShortcut({ QStringLiteral("/panel/mainmenu/show_hide"), QStringLiteral("/panel/fancymenu/show_hide") });
+        } else if (actionName == QLatin1String("ShowDesktop")) {
+            found = lxqtGlobalShortcut({ QStringLiteral("/panel/showdesktop/show_hide") });
+        }
+        if (!found.isEmpty()) return found;
+    }
     const Profile *p = findProfile(profile);
     if (!p) p = findProfile(QString::fromLatin1(MAGITRA_DEFAULT_PROFILE));
     if (!p) p = &kProfiles[0];

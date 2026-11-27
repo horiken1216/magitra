@@ -1,6 +1,7 @@
 # Build the Linux version (linux/) on GitHub's Ubuntu runner and run its unit tests.
 # The tests do not need a trackpad: they cover report parsing, gestures, inertia and settings parsing.
-# Both key profiles are built: generic and lxqt (the LXQt edition, also packaged as a .deb artifact).
+# Both key profiles are built: generic and lxqt (the LXQt edition, also packaged as a .deb artifact),
+# and each .deb is installed on a newer Ubuntu (26.04, the base of Lubuntu 26.04).
 name: linux
 
 on:
@@ -71,3 +72,25 @@ jobs:
         with:
           name: magitra-${{ matrix.profile }}-deb
           path: build/*.deb
+
+  # 24.04 で作った .deb が、より新しい Ubuntu（Lubuntu 26.04 の土台）でも依存関係を満たして入るか
+  install-newer-ubuntu:
+    needs: build
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        profile: [generic, lxqt]
+    container: ubuntu:26.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: magitra-${{ matrix.profile }}-deb
+
+      - name: Install the .deb
+        run: |
+          apt-get update
+          apt-get install -y ./*.deb
+          magitrad --version
+          # 共有ライブラリがすべて見つかること
+          ! ldd /usr/bin/magitrad /usr/bin/magitra-gui | grep 'not found'
+          apt-get remove -y "$(dpkg-deb -f ./*.deb Package)"

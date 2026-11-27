@@ -48,6 +48,8 @@ static const struct {
     /*
      * LXQt。X11 の openbox（LXQt の lxqt-rc.xml）: C-A-Left/Right で仮想デスクトップ、W-d でデスクトップの表示、A-Tab で切り替え。
      * LXQt にタスクビューはないので、パネルのメインメニュー（lxqt-panel の既定 Alt+F1）を開く。検索は lxqt-runner。
+     * メニューとデスクトップの表示は、GUI が lxqt-globalkeys の設定から実際のキーを探して CONFIG で送る（Lubuntu はメニューが Super 単独）。
+     * ここの値は、GUI が動いていないとき・設定が見つからないときの既定
      * Wayland（labwc）は既定で仮想デスクトップのキーがない（docs/LXQT.md）
      */
     { "lxqt", {

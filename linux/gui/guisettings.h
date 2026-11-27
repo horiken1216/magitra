@@ -39,7 +39,18 @@ const QList<KeyAction> &keyActions();
 /* 束縛の書き方が正しいか（key combo か exec:コマンド）。デーモンと同じトークン表 */
 bool isValidBinding(const QString &text);
 
+/* 既定の割り当て。lxqt では、メインメニュー（TaskView）とデスクトップの表示を lxqt-globalkeys の設定から探し、なければ表の値 */
 QString defaultBinding(const QString &profile, const QString &actionName);
+
+/*
+ * lxqt-globalkeys の設定（globalkeyshortcuts.conf）で、paths のどれかに割り当てた有効なキーを MAGITRA の書き方で返す。
+ * なければ空。利用者の設定（$XDG_CONFIG_HOME/lxqt）があればそれだけを、なければ $XDG_CONFIG_DIRS の順に最初の 1 つを読む
+ * （Ubuntu は XDG_CONFIG_DIRS の先頭に /etc/xdg/xdg-$DESKTOP_SESSION を足すので、Lubuntu の既定もここで見つかる）
+ */
+QString lxqtGlobalShortcut(const QStringList &paths);
+
+/* lxqt-globalkeys のキーの書き方（"Meta+D"・"Super_L"・"Control+Alt+Left"）を MAGITRA の書き方にする。できなければ空 */
+QString fromQtKeySequence(const QString &seq);
 
 QString configDir(); /* $XDG_CONFIG_HOME/magitra */
 QString agentConfPath();

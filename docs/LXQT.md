@@ -28,13 +28,26 @@ GitHub Actions の「linux」ワークフローの成果物（`magitra-lxqt-deb`
 | 操作 | 既定 | LXQt での意味 |
 |---|---|---|
 | 右隣・左隣の仮想デスクトップ | `ctrl+alt+right`・`ctrl+alt+left` | openbox（LXQt の `lxqt-rc.xml`）の `C-A-Right`・`C-A-Left` |
-| タスクビュー | `alt+f1` | LXQt にタスクビューはないので、パネルのメインメニュー（lxqt-panel の既定 `Alt+F1`）を開く |
-| デスクトップの表示 | `super+d` | openbox の `W-d`、labwc の `W-d`（`lxqt-qdbus showdesktop`） |
+| タスクビュー | lxqt-globalkeys に割り当てたメニューのキー（なければ `alt+f1`） | LXQt にタスクビューはないので、パネルのメインメニューを開く（下の「Lubuntu」） |
+| デスクトップの表示 | lxqt-globalkeys に割り当てたキー（なければ `super+d`） | openbox の `W-d`、labwc の `W-d`（`lxqt-qdbus showdesktop`） |
 | アプリの切り替え | `alt+tab` | openbox・labwc の `A-Tab` |
 | 検索 | `exec:lxqt-runner` | lxqt-runner を開く（すでに動いていれば前に出る） |
 | 戻る・進む・再生・拡大率を戻す | Linux 版と同じ | |
 
 KWin など別のウィンドウマネージャーを使っているときは、設定画面の「操作のキー」で合わせる。
+
+### メニューとデスクトップの表示のキーは、利用者の LXQt の設定から取る
+
+メインメニューとデスクトップの表示は LXQt のグローバルショートカット（lxqt-globalkeys）に割り当ててあり、ディストリビューションや利用者によって違う。
+そこで、自分で割り当てていなければ、トレイ（`magitra-gui`）が lxqt-globalkeys の設定を読み、実際のキーを常駐サービスに送る。
+読むのは `~/.config/lxqt/globalkeyshortcuts.conf`、なければ `$XDG_CONFIG_DIRS` の `lxqt/globalkeyshortcuts.conf` のうち最初の 1 つ（lxqt-globalkeys と同じ）。
+LXQt の設定で割り当てを変えたら、トレイを起動し直すと反映される。
+
+### Lubuntu
+
+Lubuntu 26.04 の既定（`lubuntu-default-settings` の `/etc/xdg/xdg-Lubuntu`）は、メインメニュー（fancymenu）が **Super 単独**、デスクトップの表示が `Meta+D`。
+上の仕組みでそのまま合う。仮想デスクトップ（openbox の `C-A-Left`・`C-A-Right`）とアプリの切り替え（`A-Tab`）は LXQt と同じ。
+Lubuntu 26.04 には `magitra-lxqt` の `.deb` がそのまま入る（CI で `ubuntu:26.04` に入れて確かめている）。
 
 ## Wayland（labwc）で仮想デスクトップを切り替える
 
