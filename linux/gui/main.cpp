@@ -51,7 +51,7 @@ public:
         m_pause = m_menu.addAction(QStringLiteral("一時停止"));
         QAction *haptic = m_menu.addAction(QStringLiteral("振動を試す"));
         m_menu.addSeparator();
-        QAction *quit = m_menu.addAction(QStringLiteral("終了"));
+        QAction *quit = m_menu.addAction(QStringLiteral("終了（一時停止して閉じる）"));
 
         QObject::connect(settings, &QAction::triggered, qApp, [this] { showSettings(); });
         QObject::connect(launcher, &QAction::triggered, qApp, [this] { showLauncher(); });
@@ -66,7 +66,7 @@ public:
                             cfg.getInt(QStringLiteral("HapticDepth")));
         });
         QObject::connect(quit, &QAction::triggered, qApp, [this] {
-            m_client.request(QStringLiteral("QUIT"));
+            m_client.request(QStringLiteral("PAUSE")); // サービスは動いたまま止める（カーネルのドライバーの動きに戻る）
             QCoreApplication::quit();
         });
 
@@ -74,6 +74,7 @@ public:
         QObject::connect(&m_icon, &QSystemTrayIcon::activated, qApp, [this](QSystemTrayIcon::ActivationReason r) {
             if (r == QSystemTrayIcon::Trigger) showSettings();
         });
+        QObject::connect(&m_link, &AgentLink::actionReceived, qApp, [this](int n) { onAction(n); });
         QObject::connect(&m_timer, &QTimer::timeout, qApp, [this] { update(); });
         m_timer.start(2000);
         update();
@@ -92,6 +93,28 @@ public:
     }
 
     void toggleLauncher() { launcherWindow()->toggle(); }
+
+    // サービスは exec: とランチャーを実行しない。ユーザー側のここで実行する
+    void onAction(int n)
+    {
+        Gui::AgentConfig cfg;
+        cfg.load(Gui::agentConfPath());
+        QString command;
+        if (n == 12) {
+            command = cfg.launcherCommand();
+            if (command == QLatin1String("magitra-gui --launcher")) {
+                toggleLauncher();
+                return;
+            }
+        } else {
+            for (const Gui::KeyAction &a : Gui::keyActions()) {
+                if (a.id != n) continue;
+                const QString b = cfg.binding(QString::fromLatin1(a.name));
+                if (b.startsWith(QLatin1String("exec:"))) command = b.mid(5).trimmed();
+            }
+        }
+        if (!command.isEmpty()) QProcess::startDetached(QStringLiteral("/bin/sh"), { QStringLiteral("-c"), command });
+    }
     void showLauncher() { launcherWindow()->showLauncher(); }
 
 private:
@@ -106,9 +129,10 @@ private:
 
     void update()
     {
+        m_link.ensureConnected();
         const AgentClient::Status st = m_client.status();
         QString text;
-        if (!st.running) text = QStringLiteral("常駐アプリが動いていません");
+        if (!st.running) text = QStringLiteral("常駐サービスに接続できません");
         else if (st.paused) text = QStringLiteral("一時停止中");
         else if (st.connected == QLatin1String("usb")) text = QStringLiteral("USB で接続中");
         else if (st.connected == QLatin1String("bt")) text = QStringLiteral("Bluetooth で接続中");
@@ -130,6 +154,7 @@ private:
     }
 
     AgentClient m_client;
+    AgentLink m_link;
     QMenu m_menu;
     QSystemTrayIcon m_icon;
     QAction *m_pause = nullptr;

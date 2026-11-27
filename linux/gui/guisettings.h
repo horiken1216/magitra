@@ -56,6 +56,7 @@ public:
     void setInt(const QString &name, int value);
 
     QString profile() const;
+    QString launcherCommand() const; /* LauncherCommand（未設定なら magitra-gui --launcher） */
     QString binding(const QString &actionName) const; /* 実際に効く値（未設定なら既定） */
     void setBinding(const QString &actionName, const QString &text); /* 空か既定と同じなら設定を消す */
 

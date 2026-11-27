@@ -1,7 +1,7 @@
 /*
  * settingswindow.h - 設定画面（settings/MtpSettings.cs と同じ分類・ラベル・範囲）
  *
- * 変えた瞬間に agent.conf へ保存し（150ms まとめて）、常駐アプリへ RELOAD を送る。
+ * 変えた瞬間に agent.conf へ保存し（150ms まとめて）、常駐サービスへ CONFIG を送る。
  */
 #ifndef MAGITRA_SETTINGSWINDOW_H
 #define MAGITRA_SETTINGSWINDOW_H

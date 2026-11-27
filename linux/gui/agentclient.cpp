@@ -1,12 +1,29 @@
 #include "agentclient.h"
 
+#include "guisettings.h"
+
 #include <QByteArray>
+#include <QFile>
 #include <QLocalSocket>
 #include <QStringList>
 
 QString AgentClient::socketPath()
 {
-    return qEnvironmentVariable("XDG_RUNTIME_DIR") + QStringLiteral("/magitra/agent.sock");
+    return QStringLiteral("/run/magitra/agent.sock");
+}
+
+/* agent.conf を CONFIG ブロックにする。本文に END の行があると途中で終わるので除く */
+static QByteArray configBlock()
+{
+    QByteArray body;
+    QFile f(Gui::agentConfPath());
+    if (f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        while (!f.atEnd()) {
+            const QByteArray line = f.readLine();
+            if (line.trimmed() != "END") body += line.endsWith('\n') ? line : line + '\n';
+        }
+    }
+    return QByteArray("CONFIG\n") + body + "END\n";
 }
 
 QString AgentClient::request(const QString &line, int timeoutMs) const
@@ -41,7 +58,46 @@ AgentClient::Status AgentClient::status() const
     return st;
 }
 
+bool AgentClient::sendConfig() const
+{
+    QLocalSocket s;
+    s.connectToServer(socketPath());
+    if (!s.waitForConnected(500)) return false;
+    s.write(configBlock());
+    if (!s.waitForBytesWritten(500)) return false;
+    while (!s.canReadLine()) {
+        if (!s.waitForReadyRead(500)) return false;
+    }
+    return QString::fromUtf8(s.readLine()).startsWith(QLatin1String("OK"));
+}
+
 bool AgentClient::haptic(int strength, int sharpness, int depth) const
 {
     return ok(QStringLiteral("HAPTIC %1 %2 %3").arg(strength).arg(sharpness).arg(depth));
+}
+
+AgentLink::AgentLink(QObject *parent) : QObject(parent)
+{
+    connect(&m_socket, &QLocalSocket::readyRead, this, [this] { onReadyRead(); });
+    connect(&m_socket, &QLocalSocket::connected, this, [this] {
+        m_socket.write("SUBSCRIBE\n");
+        m_socket.write(configBlock());
+    });
+}
+
+void AgentLink::ensureConnected()
+{
+    if (m_socket.state() == QLocalSocket::UnconnectedState) m_socket.connectToServer(AgentClient::socketPath());
+}
+
+// 返事（OK/ERR で始まる行）は読み捨て、ACTION <n> だけ取り出す
+void AgentLink::onReadyRead()
+{
+    while (m_socket.canReadLine()) {
+        const QString line = QString::fromUtf8(m_socket.readLine()).trimmed();
+        if (!line.startsWith(QLatin1String("ACTION "))) continue;
+        bool ok = false;
+        const int n = line.mid(7).toInt(&ok);
+        if (ok) emit actionReceived(n);
+    }
 }

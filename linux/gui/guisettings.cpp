@@ -252,6 +252,12 @@ QString AgentConfig::profile() const
     return findProfile(p) ? p : QString::fromLatin1(MAGITRA_DEFAULT_PROFILE);
 }
 
+QString AgentConfig::launcherCommand() const
+{
+    const QString v = m_values.value(QStringLiteral("LauncherCommand")).trimmed();
+    return v.isEmpty() ? QStringLiteral("magitra-gui --launcher") : v;
+}
+
 QString AgentConfig::binding(const QString &actionName) const
 {
     const QString v = m_values.value(QStringLiteral("Key.") + actionName).trimmed();

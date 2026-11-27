@@ -21,7 +21,7 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends cmake ninja-build qt6-base-dev
+          sudo apt-get install -y --no-install-recommends cmake ninja-build qt6-base-dev libsystemd-dev pkg-config
 
       - name: Configure
         run: cmake -S linux -B build -G Ninja -DCMAKE_BUILD_TYPE=Release

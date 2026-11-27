@@ -3,14 +3,16 @@
  *
  * 1 スレッドの poll() ループ: hidraw（マルチタッチ）、IPC のソケットとクライアント、慣性スクロールの timerfd（8ms）、
  * 再接続・再占有の timerfd（1 秒）、signalfd。
- * 使い方: magitrad [--log] [--version]
- *   --log  フレームとイベントを stderr に出す（フレームの行は agent/tests/replay_gesture.c が読める形式）
+ * systemd のシステムサービス（root・capability なし）として動く。IPC は /run/magitra/agent.sock で、
+ * 相手が seat0 のアクティブなセッションのユーザーのときだけ受け付ける。
+ * 使い方: magitrad [--log] [--socket <path>] [--version]
+ *   --log     フレームとイベントを stderr に出す（フレームの行は agent/tests/replay_gesture.c が読める形式）
+ *   --socket  ソケットの場所を変える（開発用）
  */
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
 #include <errno.h>
-#include <limits.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -21,6 +23,7 @@
 #include <sys/timerfd.h>
 #include <sys/un.h>
 #include <poll.h>
+#include <systemd/sd-login.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -33,11 +36,18 @@
 #define VERSION "0.1.0"
 #define MAX_CLIENTS 8
 #define CLIENT_BUF 256
+#define CONFIG_MAX (64 * 1024)
+#define DEFAULT_SOCKET "/run/magitra/agent.sock"
 
 typedef struct CLIENT {
     int fd;
     char buf[CLIENT_BUF];
     size_t len;
+    int subscribed;
+    int in_config;     /* CONFIG の本文を読んでいる途中 */
+    int config_big;    /* 本文が CONFIG_MAX を超えた */
+    char *config;
+    size_t config_len;
 } CLIENT;
 
 static MAGITRA_SETTINGS g_set;
@@ -47,8 +57,8 @@ static MTP_MOMENTUM g_momentum;
 static MAGITRA_DEVICE g_dev;
 static MAGITRA_UINPUT g_ui;
 static CLIENT g_clients[MAX_CLIENTS];
-static char g_conf_path[PATH_MAX];
-static char g_sock_path[sizeof(((struct sockaddr_un *)0)->sun_path)];
+static char g_sock_path[sizeof(((struct sockaddr_un *)0)->sun_path)] = DEFAULT_SOCKET;
+static long g_active_uid = -1; /* seat0 のアクティブなセッションのユーザー。いなければ -1 */
 static int g_inertia_fd = -1;
 static int g_listen_fd = -1;
 static int g_paused = 0;
@@ -170,12 +180,41 @@ static void ReleaseAll(void)
     MomentumStop();
 }
 
-static void Reload(void)
+static void ApplySettings(void)
 {
-    MagitraSettingsLoadFile(&g_set, g_conf_path);
     MagitraSettingsApply(&g_set, &g_cfg);
     g_gesture.config = g_cfg; /* 触れている指の状態は引き継ぐ */
     g_momentum.tau_ms = MagitraSettingsGlideToTau(g_set.inertia_glide);
+}
+
+/* ---- 接続元の確認 ---- */
+
+static long ActiveUid(void)
+{
+    uid_t uid;
+    if (sd_seat_get_active("seat0", NULL, &uid) < 0) return -1;
+    return (long)uid;
+}
+
+static int PeerAuthorized(int fd)
+{
+    struct ucred cred;
+    socklen_t len = sizeof(cred);
+    long active = ActiveUid();
+    if (getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &cred, &len) != 0) return 0;
+    return active >= 0 && (long)cred.uid == active;
+}
+
+/* 購読しているクライアントへ、実行はクライアント側でしてほしい操作を知らせる */
+void ActionForward(int action)
+{
+    char line[32];
+    int i, n = snprintf(line, sizeof(line), "ACTION %d\n", action);
+    for (i = 0; i < MAX_CLIENTS; i++) {
+        if (g_clients[i].fd >= 0 && g_clients[i].subscribed) {
+            send(g_clients[i].fd, line, (size_t)n, MSG_NOSIGNAL | MSG_DONTWAIT);
+        }
+    }
 }
 
 static void Disconnect(void)
@@ -195,8 +234,15 @@ static void HandleFrame(const MTP_FRAME *f)
     Dispatch(ev, MtpGestureProcessAt(&g_gesture, f, now, ev, MTP_GESTURE_MAX_EVENTS));
 }
 
+static void ResetForUserChange(void);
+
 static void OnRetryTimer(void)
 {
+    long active = ActiveUid();
+    if (active != g_active_uid) {
+        g_active_uid = active;
+        ResetForUserChange();
+    }
     if (g_dev.kind == DEVICE_NONE) {
         if (DeviceOpen(&g_dev) != 0) return;
         MtpGestureInit(&g_gesture, &g_cfg);
@@ -234,15 +280,12 @@ static void Resume(void)
 
 /* ---- IPC ---- */
 
-static void Command(char *line, char *reply, size_t size)
+static void Command(CLIENT *client, char *line, char *reply, size_t size)
 {
     int a, b, c;
     char extra;
 
-    if (strcmp(line, "RELOAD") == 0) {
-        Reload();
-        snprintf(reply, size, "OK");
-    } else if (strncmp(line, "HAPTIC ", 7) == 0) {
+    if (strncmp(line, "HAPTIC ", 7) == 0) {
         if (sscanf(line + 7, "%d %d %d %c", &a, &b, &c, &extra) != 3 ||
             a < 0 || a > 255 || b < 0 || b > 255 || c < 0 || c > 255) {
             snprintf(reply, size, "ERR bad arguments");
@@ -268,8 +311,8 @@ static void Command(char *line, char *reply, size_t size)
     } else if (strcmp(line, "STATUS") == 0) {
         snprintf(reply, size, "OK connected=%s paused=%d",
             g_dev.kind == DEVICE_USB ? "usb" : (g_dev.kind == DEVICE_BT ? "bt" : "none"), g_paused);
-    } else if (strcmp(line, "QUIT") == 0) {
-        g_quit = 1;
+    } else if (strcmp(line, "SUBSCRIBE") == 0) {
+        client->subscribed = 1;
         snprintf(reply, size, "OK");
     } else {
         snprintf(reply, size, "ERR unknown command");
@@ -281,6 +324,63 @@ static void CloseClient(CLIENT *c)
     close(c->fd);
     c->fd = -1;
     c->len = 0;
+    c->subscribed = 0;
+    c->in_config = 0;
+    free(c->config);
+    c->config = NULL;
+    c->config_len = 0;
+}
+
+/* ユーザーが切り替わった（ログアウト含む）: 前のユーザーの設定・一時停止・押下状態を引き継がない */
+static void ResetForUserChange(void)
+{
+    int i;
+    ReleaseAll();
+    MagitraSettingsDefaults(&g_set);
+    ApplySettings();
+    g_paused = 0;
+    MtpGestureInit(&g_gesture, &g_cfg);
+    for (i = 0; i < MAX_CLIENTS; i++) {
+        if (g_clients[i].fd >= 0) CloseClient(&g_clients[i]);
+    }
+}
+
+/* CONFIG の本文の 1 行（END まで）を溜める。END で反映して返事を作る */
+static void ConfigLine(CLIENT *c, const char *line, char *reply, size_t size)
+{
+    size_t n = strlen(line);
+    if (strcmp(line, "END") == 0) {
+        c->in_config = 0;
+        if (c->config_big) {
+            snprintf(reply, size, "ERR too large");
+        } else {
+            MagitraSettingsParse(&g_set, c->config != NULL ? c->config : "");
+            ApplySettings();
+            snprintf(reply, size, "OK");
+        }
+        free(c->config);
+        c->config = NULL;
+        c->config_len = 0;
+        return;
+    }
+    reply[0] = '\0';
+    if (c->config_big) return;
+    if (c->config_len + n + 1 > CONFIG_MAX) {
+        c->config_big = 1;
+        return;
+    }
+    {
+        char *grown = realloc(c->config, c->config_len + n + 2);
+        if (grown == NULL) {
+            c->config_big = 1;
+            return;
+        }
+        c->config = grown;
+        memcpy(c->config + c->config_len, line, n);
+        c->config_len += n;
+        c->config[c->config_len++] = '\n';
+        c->config[c->config_len] = '\0';
+    }
 }
 
 static void OnClientReadable(CLIENT *c)
@@ -298,11 +398,26 @@ static void OnClientReadable(CLIENT *c)
         size_t used = (size_t)(nl - c->buf) + 1;
         *nl = '\0';
         if (nl > c->buf && nl[-1] == '\r') nl[-1] = '\0';
-        Command(c->buf, reply, sizeof(reply) - 1);
-        strcat(reply, "\n");
-        if (send(c->fd, reply, strlen(reply), MSG_NOSIGNAL) < 0) {
+        if (!PeerAuthorized(c->fd)) {
+            send(c->fd, "ERR denied\n", 11, MSG_NOSIGNAL);
             CloseClient(c);
             return;
+        }
+        if (c->in_config) {
+            ConfigLine(c, c->buf, reply, sizeof(reply) - 1);
+        } else if (strcmp(c->buf, "CONFIG") == 0) {
+            c->in_config = 1;
+            c->config_big = 0;
+            reply[0] = '\0';
+        } else {
+            Command(c, c->buf, reply, sizeof(reply) - 1);
+        }
+        if (reply[0] != '\0') {
+            strcat(reply, "\n");
+            if (send(c->fd, reply, strlen(reply), MSG_NOSIGNAL) < 0) {
+                CloseClient(c);
+                return;
+            }
         }
         memmove(c->buf, c->buf + used, c->len - used);
         c->len -= used;
@@ -315,6 +430,11 @@ static void OnAccept(void)
     int fd = accept4(g_listen_fd, NULL, NULL, SOCK_NONBLOCK | SOCK_CLOEXEC);
     int i;
     if (fd < 0) return;
+    if (!PeerAuthorized(fd)) {
+        send(fd, "ERR denied\n", 11, MSG_NOSIGNAL);
+        close(fd);
+        return;
+    }
     for (i = 0; i < MAX_CLIENTS; i++) {
         if (g_clients[i].fd < 0) {
             g_clients[i].fd = fd;
@@ -327,29 +447,13 @@ static void OnAccept(void)
 
 static int Listen(void)
 {
-    const char *run = getenv("XDG_RUNTIME_DIR");
-    char dir[PATH_MAX], fallback[64];
     struct sockaddr_un addr;
     mode_t old;
     int probe;
 
-    if (run == NULL || run[0] != '/') {
-        snprintf(fallback, sizeof(fallback), "/run/user/%u", (unsigned)getuid());
-        run = fallback;
-    }
-    snprintf(dir, sizeof(dir), "%s/magitra", run);
-    if (mkdir(dir, 0700) != 0 && errno != EEXIST) {
-        fprintf(stderr, "magitrad: %s を作れません: %s\n", dir, strerror(errno));
-        return -1;
-    }
-    chmod(dir, 0700);
-    if (snprintf(g_sock_path, sizeof(g_sock_path), "%s/agent.sock", dir) >= (int)sizeof(g_sock_path)) {
-        fprintf(stderr, "magitrad: ソケットのパスが長すぎます\n");
-        return -1;
-    }
     memset(&addr, 0, sizeof(addr));
     addr.sun_family = AF_UNIX;
-    strcpy(addr.sun_path, g_sock_path);
+    snprintf(addr.sun_path, sizeof(addr.sun_path), "%s", g_sock_path);
 
     /* すでに動いているなら二重起動しない。残骸のソケットなら消す */
     probe = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
@@ -365,7 +469,7 @@ static int Listen(void)
 
     g_listen_fd = socket(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
     if (g_listen_fd < 0) return -1;
-    old = umask(0177); /* ソケットは 0600 */
+    old = umask(0); /* ソケットは 0666。誰が使えるかは接続ごとに確かめる */
     if (bind(g_listen_fd, (struct sockaddr *)&addr, sizeof(addr)) != 0 || listen(g_listen_fd, 4) != 0) {
         fprintf(stderr, "magitrad: %s を待ち受けできません: %s\n", g_sock_path, strerror(errno));
         umask(old);
@@ -374,6 +478,7 @@ static int Listen(void)
         return -1;
     }
     umask(old);
+    chmod(g_sock_path, 0666);
     return 0;
 }
 
@@ -399,16 +504,20 @@ int main(int argc, char **argv)
     for (i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--log") == 0) {
             g_log = 1;
+        } else if (strcmp(argv[i], "--socket") == 0 && i + 1 < argc) {
+            if (snprintf(g_sock_path, sizeof(g_sock_path), "%s", argv[++i]) >= (int)sizeof(g_sock_path)) {
+                fprintf(stderr, "magitrad: ソケットのパスが長すぎます\n");
+                return 2;
+            }
         } else if (strcmp(argv[i], "--version") == 0) {
             printf("magitrad %s\n", VERSION);
             return 0;
         } else {
-            fprintf(stderr, "使い方: magitrad [--log] [--version]\n");
+            fprintf(stderr, "使い方: magitrad [--log] [--socket <path>] [--version]\n");
             return 2;
         }
     }
 
-    if (MagitraSettingsPath(g_conf_path, sizeof(g_conf_path)) != 0) g_conf_path[0] = '\0';
     DeviceInit(&g_dev);
     MtpMomentumInit(&g_momentum);
     for (i = 0; i < MAX_CLIENTS; i++) g_clients[i].fd = -1;
@@ -417,7 +526,6 @@ int main(int argc, char **argv)
     sigemptyset(&mask);
     sigaddset(&mask, SIGINT);
     sigaddset(&mask, SIGTERM);
-    sigaddset(&mask, SIGHUP);
     sigprocmask(SIG_BLOCK, &mask, NULL);
     sig_fd = signalfd(-1, &mask, SFD_NONBLOCK | SFD_CLOEXEC);
     g_inertia_fd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC);
@@ -432,8 +540,10 @@ int main(int argc, char **argv)
         UinputClose(&g_ui);
         return 1;
     }
-    Reload();
+    MagitraSettingsDefaults(&g_set);
+    ApplySettings();
     MtpGestureInit(&g_gesture, &g_cfg);
+    g_active_uid = ActiveUid();
 
     memset(&retry, 0, sizeof(retry));
     retry.it_interval.tv_sec = 1;
@@ -464,8 +574,7 @@ int main(int argc, char **argv)
         if (pfds[P_SIGNAL].revents & POLLIN) {
             struct signalfd_siginfo si;
             while (read(sig_fd, &si, sizeof(si)) == (ssize_t)sizeof(si)) {
-                if (si.ssi_signo == SIGHUP) Reload();
-                else g_quit = 1;
+                g_quit = 1;
             }
         }
         if (pfds[P_LISTEN].revents & POLLIN) OnAccept();
@@ -504,7 +613,7 @@ int main(int argc, char **argv)
     DeviceClose(&g_dev);
     UinputClose(&g_ui);
     for (i = 0; i < MAX_CLIENTS; i++) {
-        if (g_clients[i].fd >= 0) close(g_clients[i].fd);
+        if (g_clients[i].fd >= 0) CloseClient(&g_clients[i]);
     }
     close(g_listen_fd);
     unlink(g_sock_path);

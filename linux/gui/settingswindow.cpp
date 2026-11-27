@@ -575,7 +575,7 @@ void SettingsWindow::saveNow()
 {
     if (m_cfg.save(Gui::agentConfPath())) {
         m_footer->setText(QString::fromUtf8(kFooterText));
-        m_client.reload();
+        m_client.sendConfig();
     } else {
         m_footer->setText(QStringLiteral("設定を保存できませんでした。"));
     }
