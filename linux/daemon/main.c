@@ -33,7 +33,7 @@
 #include "settings.h"
 #include "uinput.h"
 
-#define VERSION "0.1.0"
+#define VERSION MAGITRA_VERSION
 #define MAX_CLIENTS 8
 #define CLIENT_BUF 4096 /* GUI は 3500 バイトまでの割り当てしか書かない（CONFIG の 1 行が収まる） */
 #define CONFIG_MAX (64 * 1024)

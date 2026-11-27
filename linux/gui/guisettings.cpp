@@ -85,6 +85,10 @@ static const Profile kProfiles[] = {
     { "generic",
       { "ctrl+alt+right", "ctrl+alt+left", "super+w", "super+d", "alt+tab",
         "alt+left", "alt+right", "playpause", "super", "ctrl+0" } },
+    /* LXQt。linux/daemon/settings.c の表と同じにしておく */
+    { "lxqt",
+      { "ctrl+alt+right", "ctrl+alt+left", "alt+f1", "super+d", "alt+tab",
+        "alt+left", "alt+right", "playpause", "exec:lxqt-runner", "ctrl+0" } },
 };
 
 static const Profile *findProfile(const QString &name)

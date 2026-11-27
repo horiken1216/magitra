@@ -5,6 +5,10 @@
 #include <QFile>
 #include <QTemporaryDir>
 #include <cstdio>
+#include <cstring>
+
+/* 検索の既定はビルドの既定プロファイルで違う（generic: super、lxqt: lxqt-runner） */
+#define EXPECT_SEARCH (std::strcmp(MAGITRA_DEFAULT_PROFILE, "lxqt") == 0 ? "exec:lxqt-runner" : "super")
 
 static int g_failures = 0;
 
@@ -44,7 +48,7 @@ int main()
     CHECK(c.getInt("Swipe4Up") == 12);
     CHECK(c.getInt("TwoFingerDoubleTap") == 11);
     CHECK(c.binding("DesktopNext") == "ctrl+alt+right");
-    CHECK(c.binding("Search") == "super");
+    CHECK(c.binding("Search") == QLatin1String(EXPECT_SEARCH));
 
     /* 範囲の丸め・不正な値 */
     writeFile(conf, "# コメント\nPointerSpeed=500\nPointerAccel=-3\nForceThreshold=abc\nSwipe3Left=99\n"
@@ -55,7 +59,7 @@ int main()
     CHECK(c.getInt("ForceThreshold") == 200);
     CHECK(c.getInt("Swipe3Left") == 0);
     CHECK(c.binding("TaskView") == "ctrl+shift+f5");
-    CHECK(c.binding("Search") == "super"); /* 不正な束縛は既定に戻る */
+    CHECK(c.binding("Search") == QLatin1String(EXPECT_SEARCH)); /* 不正な束縛は既定に戻る */
 
     /* 書き戻し: 知らない行とコメントを残す */
     c.setInt("PointerSpeed", 30);

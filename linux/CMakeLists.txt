@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(MAGITRA C CXX)
+project(MAGITRA VERSION 0.1.0 LANGUAGES C CXX)
 
 include(GNUInstallDirs)
 
@@ -14,7 +14,11 @@ add_compile_options(
     "$<$<COMPILE_LANGUAGE:C>:-Werror>"
     "$<$<COMPILE_LANGUAGE:C>:-D_GNU_SOURCE>")
 
-set(MAGITRA_DEFAULT_PROFILE "generic" CACHE STRING "既定のキー割り当ての表（generic）")
+set(MAGITRA_DEFAULT_PROFILE "generic" CACHE STRING "既定のキー割り当ての表（generic か lxqt）")
+set_property(CACHE MAGITRA_DEFAULT_PROFILE PROPERTY STRINGS generic lxqt)
+if(NOT MAGITRA_DEFAULT_PROFILE MATCHES "^(generic|lxqt)$")
+    message(FATAL_ERROR "MAGITRA_DEFAULT_PROFILE は generic か lxqt: ${MAGITRA_DEFAULT_PROFILE}")
+endif()
 # systemd と XDG autostart は決まった場所しか読まないので、インストール先の prefix（/usr/local など）に関係なくここに入れる
 set(MAGITRA_SYSTEMD_DIR "/usr/lib/systemd/system" CACHE PATH "systemd のサービスファイルの置き場所")
 set(MAGITRA_AUTOSTART_DIR "/etc/xdg/autostart" CACHE PATH "XDG 自動起動の .desktop の置き場所")
@@ -48,3 +52,17 @@ if(MAGITRA_BUILD_GUI)
     add_subdirectory(gui)
 endif()
 add_subdirectory(daemon)
+
+# Debian パッケージ（cpack -G DEB）。LXQt 版は magitra-lxqt という名前にする
+set(CPACK_PACKAGE_NAME "magitra")
+if(MAGITRA_DEFAULT_PROFILE STREQUAL "lxqt")
+    set(CPACK_PACKAGE_NAME "magitra-lxqt")
+endif()
+set(CPACK_PACKAGE_CONTACT "MAGITRA <https://github.com/horiken1216/magitra>")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Apple Magic Trackpad の常駐アプリ（ジェスチャー・Force Touch・慣性スクロール）")
+set(CPACK_PACKAGING_INSTALL_PREFIX "/usr")
+set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
+set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+set(CPACK_DEBIAN_PACKAGE_SECTION "utils")
+set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA "${CMAKE_CURRENT_SOURCE_DIR}/data/postinst;${CMAKE_CURRENT_SOURCE_DIR}/data/prerm")
+include(CPack)

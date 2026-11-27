@@ -35,7 +35,7 @@ sudo systemctl enable --now magitrad
 
 サービスファイルは `/usr/lib/systemd/system`、トレイの自動起動は `/etc/xdg/autostart` に入る（systemd と XDG autostart はここしか読まないので、`CMAKE_INSTALL_PREFIX` に関係なくこの場所。
 変えるときは `-DMAGITRA_SYSTEMD_DIR=…`・`-DMAGITRA_AUTOSTART_DIR=…`）。
-GUI が要らなければ `-DMAGITRA_BUILD_GUI=OFF`。
+GUI が要らなければ `-DMAGITRA_BUILD_GUI=OFF`。LXQt で使うなら LXQt 版（[LXQT.md](LXQT.md)）。
 
 導入したらログインし直す（または `magitra-gui &` を起動する）。トレイに虎のアイコンが出れば動いている。
 うまく動かないときは、サービスを止めて端末で動かすと、接続の様子と届いたフレーム・イベントが出る。

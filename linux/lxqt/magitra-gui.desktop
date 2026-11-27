@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=MAGITRA 設定
+Name[ja]=MAGITRA 設定
+Comment=Magic Trackpad の設定
+Exec=magitra-gui --settings
+Icon=magitra
+Terminal=false
+# LXQt の設定センター（lxqt-config）は、DesktopSettings と LXQt を持つものを「LXQt の設定」の欄に並べる（lxqt-menu-data の lxqt-config.menu）
+Categories=Settings;DesktopSettings;Qt;LXQt;

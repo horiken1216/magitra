@@ -9,6 +9,9 @@
 #include "pathprefix.h"
 #include "settings.h"
 
+/* 検索の既定はビルドの既定プロファイルで違う（generic: super、lxqt: lxqt-runner） */
+#define EXPECT_SEARCH (strcmp(MAGITRA_DEFAULT_PROFILE, "lxqt") == 0 ? "exec:lxqt-runner" : "super")
+
 static int g_failed = 0;
 static int g_checks = 0;
 
@@ -36,9 +39,9 @@ static void test_defaults(void)
     CHECK(MagitraSettingsSwipeAction(&s, 4, MTP_DIR_UP) == MAGITRA_ACTION_LAUNCHER);
     CHECK(MagitraSettingsSwipeAction(&s, 4, MTP_DIR_DOWN) == MAGITRA_ACTION_NONE);
     CHECK(MagitraSettingsSwipeAction(&s, 2, MTP_DIR_UP) == MAGITRA_ACTION_NONE);
-    CHECK(strcmp(s.profile, "generic") == 0);
+    CHECK(strcmp(s.profile, MAGITRA_DEFAULT_PROFILE) == 0);
     CHECK(strcmp(MagitraSettingsBinding(&s, MAGITRA_ACTION_DESKTOP_NEXT), "ctrl+alt+right") == 0);
-    CHECK(strcmp(MagitraSettingsBinding(&s, MAGITRA_ACTION_SEARCH), "super") == 0);
+    CHECK(strcmp(MagitraSettingsBinding(&s, MAGITRA_ACTION_SEARCH), EXPECT_SEARCH) == 0);
     CHECK(strcmp(MagitraSettingsBinding(&s, MAGITRA_ACTION_ZOOM_RESET), "ctrl+0") == 0);
     CHECK(MagitraSettingsBinding(&s, MAGITRA_ACTION_MIDDLE_CLICK) == NULL);
     CHECK(MagitraSettingsBinding(&s, MAGITRA_ACTION_LAUNCHER) == NULL);
@@ -78,12 +81,18 @@ static void test_parse(void)
     CHECK(strcmp(s.launcher_command, "my-launcher --x") == 0);
     CHECK(strcmp(MagitraSettingsBinding(&s, MAGITRA_ACTION_APP_SWITCH), "super+tab") == 0);
     CHECK(strcmp(MagitraSettingsBinding(&s, MAGITRA_ACTION_TASK_VIEW), "exec:rofi -show window") == 0);
-    CHECK(strcmp(MagitraSettingsBinding(&s, MAGITRA_ACTION_SEARCH), "super") == 0);      /* 空は既定 */
+    CHECK(strcmp(MagitraSettingsBinding(&s, MAGITRA_ACTION_SEARCH), EXPECT_SEARCH) == 0);      /* 空は既定 */
     CHECK(strcmp(MagitraSettingsBinding(&s, MAGITRA_ACTION_ZOOM_RESET), "ctrl+0") == 0); /* 誤りは既定 */
     CHECK(strcmp(MagitraSettingsBinding(&s, MAGITRA_ACTION_DESKTOP_PREV), "ctrl+alt+left") == 0);
 
+    MagitraSettingsParse(&s, "Profile=lxqt\nKey.ShowDesktop=ctrl+alt+d\n");
+    CHECK(strcmp(s.profile, "lxqt") == 0);
+    CHECK(strcmp(MagitraSettingsBinding(&s, MAGITRA_ACTION_SEARCH), "exec:lxqt-runner") == 0);
+    CHECK(strcmp(MagitraSettingsBinding(&s, MAGITRA_ACTION_TASK_VIEW), "alt+f1") == 0);
+    CHECK(strcmp(MagitraSettingsBinding(&s, MAGITRA_ACTION_SHOW_DESKTOP), "ctrl+alt+d") == 0); /* 明示が勝つ */
+
     MagitraSettingsParse(&s, "Profile=nosuch\n");
-    CHECK(strcmp(s.profile, "generic") == 0);
+    CHECK(strcmp(s.profile, MAGITRA_DEFAULT_PROFILE) == 0);
     MagitraSettingsParse(&s, "");
     CHECK(s.pointer_speed == 50);
 }
