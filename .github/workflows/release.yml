@@ -1,5 +1,7 @@
 # Build mtpsetup.exe on GitHub's Windows runner.
 # - Push a tag "vX.Y.Z": run all unit tests, build mtpsetup.exe, and publish a GitHub Release with the file and its SHA-256.
+#   The Linux .deb files (generic and LXQt, for Ubuntu 24.04 and 26.04) are built, tested and install-checked first by
+#   linux.yml, and attached to the same release with their SHA-256. The release is not published if they fail.
 #   The release text is docs/releases/vX.Y.Z.md (required), followed by the SHA-256 line and the VirusTotal result
 #   (when the repository secret VIRUSTOTAL_API_KEY is set).
 # - Run by hand (Actions tab → release → Run workflow):
@@ -24,8 +26,15 @@ permissions:
   contents: write
 
 jobs:
+  linux:
+    if: github.event_name == 'push' || inputs.scan_release == ''
+    uses: ./.github/workflows/linux.yml
+    with:
+      version: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
+
   build:
     if: github.event_name == 'push' || inputs.scan_release == ''
+    needs: linux
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
@@ -78,6 +87,32 @@ jobs:
           VT_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}
         run: ./.github/scripts/virustotal.ps1 -Path build/mtpsetup.exe
 
+      # linux.yml（上の linux ジョブ）が作った .deb。名前に Ubuntu の版を入れる（版ごとにファイル名が同じため）
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: magitra-*-deb
+          path: linux-debs
+
+      - name: Linux .deb files
+        id: debs
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path release-debs | Out-Null
+          $lines = @()
+          foreach ($dir in Get-ChildItem linux-debs -Directory | Sort-Object Name) {
+            # magitra-lxqt-ubuntu26.04-deb → ubuntu26.04
+            if ($dir.Name -notmatch '-(ubuntu[0-9.]+)-deb$') { throw "成果物の名前が想定と違います: $($dir.Name)" }
+            $ubuntu = $Matches[1]
+            $debs = @(Get-ChildItem $dir.FullName -Filter *.deb)
+            if ($debs.Count -ne 1) { throw "$($dir.Name) に .deb が 1 つではありません" }
+            $name = $debs[0].Name -replace '_amd64\.deb$', "_${ubuntu}_amd64.deb"
+            Copy-Item $debs[0].FullName "release-debs/$name"
+            $lines += '- `' + $name + '`: `' + (Get-FileHash "release-debs/$name" -Algorithm SHA256).Hash + '`'
+          }
+          if ($lines.Count -ne 4) { throw "Linux の .deb が 4 つそろっていません（$($lines.Count) 個）" }
+          ($lines -join "`n") | Set-Content -Path deb-hashes.md -Encoding UTF8
+          Get-Content deb-hashes.md
+
       - name: Publish the release
         if: startsWith(github.ref, 'refs/tags/v')
         shell: pwsh
@@ -96,8 +131,10 @@ jobs:
             if ($env:VT_SUMMARY) { $body += "（$env:VT_SUMMARY）" }
             $body += "`n"
           }
+          $body += "`nLinux 版（[docs/LINUX.md](https://github.com/$env:GITHUB_REPOSITORY/blob/$env:TAG/docs/LINUX.md)）の .deb と SHA-256（Lubuntu 26.04 は magitra-lxqt の ubuntu26.04）:`n`n"
+          $body += (Get-Content deb-hashes.md -Raw -Encoding UTF8).TrimEnd() + "`n"
           Set-Content -Path release-body.md -Value $body -Encoding UTF8
-          gh release create $env:TAG build/mtpsetup.exe --title "MAGITRA $($env:TAG.TrimStart('v'))" --notes-file release-body.md --verify-tag
+          gh release create $env:TAG build/mtpsetup.exe (Get-ChildItem release-debs/*.deb).FullName --title "MAGITRA $($env:TAG.TrimStart('v'))" --notes-file release-body.md --verify-tag
 
   # Scan the mtpsetup.exe of a release that is already published, and add (or replace) the VirusTotal line in its text.
   scan-release:

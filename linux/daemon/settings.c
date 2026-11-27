@@ -45,6 +45,16 @@ static const struct {
     { "generic", {
         "ctrl+alt+right", "ctrl+alt+left", "super+w", "super+d", "alt+tab",
         "alt+left", "alt+right", "playpause", "super", "ctrl+0" } },
+    /*
+     * LXQt。X11 の openbox（LXQt の lxqt-rc.xml）: C-A-Left/Right で仮想デスクトップ、W-d でデスクトップの表示、A-Tab で切り替え。
+     * LXQt にタスクビューはないので、パネルのメインメニュー（lxqt-panel の既定 Alt+F1）を開く。検索は lxqt-runner。
+     * メニューとデスクトップの表示は、GUI が lxqt-globalkeys の設定から実際のキーを探して CONFIG で送る（Lubuntu はメニューが Super 単独）。
+     * ここの値は、GUI が動いていないとき・設定が見つからないときの既定
+     * Wayland（labwc）は既定で仮想デスクトップのキーがない（docs/LXQT.md）
+     */
+    { "lxqt", {
+        "ctrl+alt+right", "ctrl+alt+left", "alt+f1", "super+d", "alt+tab",
+        "alt+left", "alt+right", "playpause", "exec:lxqt-runner", "ctrl+0" } },
 };
 
 #define PROFILE_COUNT (sizeof(kProfiles) / sizeof(kProfiles[0]))
@@ -54,6 +64,10 @@ static const char *FindProfile(const char *name)
     size_t i;
     for (i = 0; i < PROFILE_COUNT; i++) {
         if (strcmp(kProfiles[i].name, name) == 0) return kProfiles[i].name;
+    }
+    /* 知らない名前はビルドの既定へ（GUI の AgentConfig::profile と同じ） */
+    for (i = 0; i < PROFILE_COUNT; i++) {
+        if (strcmp(kProfiles[i].name, MAGITRA_DEFAULT_PROFILE) == 0) return kProfiles[i].name;
     }
     return kProfiles[0].name;
 }

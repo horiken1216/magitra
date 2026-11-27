@@ -1,0 +1,14 @@
+#!/bin/sh
+# 取り除いたら systemd に知らせ、有効化の記録を片付ける（dh_installsystemd と同じ手順）
+set -e
+if [ "$1" = "remove" ] && [ -d /run/systemd/system ]; then
+    systemctl --system daemon-reload >/dev/null || true
+fi
+if [ "$1" = "remove" ] && [ -x /usr/bin/deb-systemd-helper ]; then
+    deb-systemd-helper mask magitrad.service >/dev/null || true
+fi
+if [ "$1" = "purge" ] && [ -x /usr/bin/deb-systemd-helper ]; then
+    deb-systemd-helper purge magitrad.service >/dev/null || true
+    deb-systemd-helper unmask magitrad.service >/dev/null || true
+fi
+exit 0

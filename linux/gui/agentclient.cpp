@@ -23,7 +23,17 @@ static QByteArray configBlock()
             if (line.trimmed() != "END") body += line.endsWith('\n') ? line : line + '\n';
         }
     }
-    return QByteArray("CONFIG\n") + body + "END\n";
+    /* デーモンはホームの設定を読めないので、GUI が見つけた既定（lxqt-globalkeys のキー）を先に送る。本文に同じキーがあればそちらが勝つ */
+    QByteArray found;
+    Gui::AgentConfig cfg;
+    cfg.load(Gui::agentConfPath());
+    for (const char *name : { "TaskView", "ShowDesktop" }) {
+        const QString key = QString::fromLatin1(name);
+        const QString def = Gui::defaultBinding(cfg.profile(), key);
+        if (def != cfg.binding(key) || def.isEmpty()) continue; /* 自分で割り当てている */
+        found += "Key." + key.toLatin1() + "=" + def.toUtf8() + "\n";
+    }
+    return QByteArray("CONFIG\n") + found + body + "END\n";
 }
 
 QString AgentClient::request(const QString &line, int timeoutMs) const

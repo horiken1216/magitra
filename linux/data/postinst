@@ -1,0 +1,19 @@
+#!/bin/sh
+# 常駐サービス magitrad を有効にして起動する。dh_installsystemd が作る処理と同じ手順で、
+# 管理者が無効化（disable・mask）したサービスは更新しても有効に戻さず、policy-rc.d にも従う
+set -e
+if [ "$1" = "configure" ] || [ "$1" = "abort-upgrade" ] || [ "$1" = "abort-deconfigure" ] || [ "$1" = "abort-remove" ]; then
+    deb-systemd-helper unmask magitrad.service >/dev/null || true
+    # was-enabled は初めての導入では真になるので、新しく入れたときだけ有効にする
+    if deb-systemd-helper --quiet was-enabled magitrad.service; then
+        deb-systemd-helper enable magitrad.service >/dev/null || true
+    else
+        deb-systemd-helper update-state magitrad.service >/dev/null || true
+    fi
+    if [ -d /run/systemd/system ]; then
+        systemctl --system daemon-reload >/dev/null || true
+        if [ -n "$2" ]; then action=restart; else action=start; fi
+        deb-systemd-invoke "$action" magitrad.service >/dev/null || true
+    fi
+fi
+exit 0

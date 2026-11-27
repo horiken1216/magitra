@@ -9,6 +9,7 @@ pkg_check_modules(SYSTEMD REQUIRED IMPORTED_TARGET libsystemd)
 
 add_executable(magitrad main.c device.c uinput.c actions.c)
 target_link_libraries(magitrad PRIVATE magitrad_settings PkgConfig::SYSTEMD)
+target_compile_definitions(magitrad PRIVATE MAGITRA_VERSION="${PROJECT_VERSION}")
 
 add_executable(test_settings tests/test_settings.c)
 target_link_libraries(test_settings PRIVATE magitrad_settings)
