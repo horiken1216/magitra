@@ -8,7 +8,7 @@ LXQt 版は Linux 版（[LINUX.md](LINUX.md)）と同じプログラムで、次
 
 ほかの Linux 版を使っていても、`~/.config/magitra/agent.conf` に `Profile=lxqt` と書けば同じ既定値になる。
 
-**実機での確認はまだ**（GitHub Actions の Ubuntu でビルドと単体テストだけ確かめている）。
+**Lubuntu 26.04 と Magic Trackpad で、USB・Bluetooth の両方を実機で確認した**（2026-11-27。テスト手順の全項目：ポインター・クリック・スクロール・慣性・ピンチ・ダブルタップ・Force Touch の振動・3・4 本指のジェスチャー・トレイ・設定画面・設定センター・サービス・ロック画面・再起動・取り除き）。素の LXQt（Lubuntu 以外）と Wayland（labwc）は未確認。
 
 ## ビルドと導入
 
