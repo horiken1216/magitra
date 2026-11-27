@@ -46,7 +46,7 @@ $BthHardwareIds = @(
     'BTHENUM\{00001124-0000-1000-8000-00805f9b34fb}_VID&0001004c_PID&0265',
     'BTHENUM\{00001124-0000-1000-8000-00805f9b34fb}_VID&0001004c_PID&0324')
 $ServiceName = 'MagitraSwitch'
-$Version = '0.3.0'
+$Version = '0.4.0'
 
 function Step($m) { Write-Output "STEP: $m" }
 function Info($m) { Write-Output "INFO: $m" }
