@@ -1,7 +1,8 @@
-# Build the Linux version (linux/) on GitHub's Ubuntu runner and run its unit tests.
+# Build the Linux version (linux/) and run its unit tests.
 # The tests do not need a trackpad: they cover report parsing, gestures, inertia and settings parsing.
-# Both key profiles are built: generic and lxqt (the LXQt edition, also packaged as a .deb artifact),
-# and each .deb is installed on a newer Ubuntu (26.04, the base of Lubuntu 26.04).
+# Each Ubuntu release gets its own .deb (Qt's runtime package names differ between releases, so a .deb built on 24.04
+# does not install on 26.04). Both key profiles are built: generic and lxqt (the LXQt edition; Lubuntu 26.04 uses
+# the 26.04 one). Every .deb is installed in the same container afterwards, with the cmake-installed files removed first.
 name: linux
 
 on:
@@ -18,15 +19,22 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     strategy:
+      fail-fast: false
       matrix:
+        ubuntu: ['24.04', '26.04']
         profile: [generic, lxqt]
+    container: ubuntu:${{ matrix.ubuntu }}
+    env:
+      DEBIAN_FRONTEND: noninteractive
     steps:
       - uses: actions/checkout@v4
 
+      # systemd は systemd-analyze のため（コンテナの中では動かさない）
       - name: Install build dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends cmake ninja-build qt6-base-dev libsystemd-dev pkg-config dpkg-dev file
+          apt-get update
+          apt-get install -y --no-install-recommends build-essential cmake ninja-build qt6-base-dev libsystemd-dev \
+            pkg-config dpkg-dev file systemd
 
       - name: Configure
         run: cmake -S linux -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr -DMAGITRA_DEFAULT_PROFILE=${{ matrix.profile }}
@@ -40,13 +48,6 @@ jobs:
       - name: Install (staging)
         run: DESTDIR="$PWD/stage" cmake --install build && find stage -type f | sort
 
-      # 常駐サービスの unit ファイルを systemd 自身に確かめさせる（知らない指定・誤りは失敗にする）
-      - name: Verify systemd unit
-        run: |
-          sudo cmake --install build
-          systemd-analyze verify /usr/lib/systemd/system/magitrad.service 2>&1 | tee verify.txt
-          ! grep -v '^$' verify.txt
-
       - name: Package (.deb)
         run: |
           cd build && cpack -G DEB && dpkg-deb --info ./*.deb && dpkg-deb --contents ./*.deb | tee contents.txt
@@ -55,42 +56,24 @@ jobs:
           grep -q ' \./etc/xdg/autostart/magitra-tray.desktop$' contents.txt
           grep -q ' \./usr/bin/magitrad$' contents.txt
 
-      # .deb だけを入れた状態で確かめる（cmake --install で入れたものが、パッケージの不足やパスのずれを隠さないように消してから）
+      # .deb だけを入れて確かめる（このコンテナには cmake --install で何も入れていない）
       - name: Install the .deb and check it
         run: |
-          sudo xargs rm -f < build/install_manifest.txt
-          sudo apt-get install -y ./build/*.deb
+          apt-get install -y ./build/*.deb
           exec_start=$(sed -n 's/^ExecStart=//p' /usr/lib/systemd/system/magitrad.service)
           test -x "$exec_start"
+          "$exec_start" --version
+          # 共有ライブラリがすべて見つかること
+          ! ldd /usr/bin/magitrad /usr/bin/magitra-gui | grep 'not found'
+          # 常駐サービスの unit ファイルを systemd 自身に確かめさせる（知らない指定・誤りは失敗にする）
           systemd-analyze verify /usr/lib/systemd/system/magitrad.service 2>&1 | tee verify.txt
           ! grep -v '^$' verify.txt
-          systemctl is-enabled magitrad.service
-          sudo apt-get remove -y "$(dpkg-deb -f build/*.deb Package)"
+          # postinst が有効にしたこと（コンテナでは systemd が動いていないので、有効化の印で見る）
+          test -L /etc/systemd/system/multi-user.target.wants/magitrad.service
+          apt-get remove -y "$(dpkg-deb -f build/*.deb Package)"
           test ! -e /usr/bin/magitrad
 
       - uses: actions/upload-artifact@v4
         with:
-          name: magitra-${{ matrix.profile }}-deb
+          name: magitra-${{ matrix.profile }}-ubuntu${{ matrix.ubuntu }}-deb
           path: build/*.deb
-
-  # 24.04 で作った .deb が、より新しい Ubuntu（Lubuntu 26.04 の土台）でも依存関係を満たして入るか
-  install-newer-ubuntu:
-    needs: build
-    runs-on: ubuntu-24.04
-    strategy:
-      matrix:
-        profile: [generic, lxqt]
-    container: ubuntu:26.04
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: magitra-${{ matrix.profile }}-deb
-
-      - name: Install the .deb
-        run: |
-          apt-get update
-          apt-get install -y ./*.deb
-          magitrad --version
-          # 共有ライブラリがすべて見つかること
-          ! ldd /usr/bin/magitrad /usr/bin/magitra-gui | grep 'not found'
-          apt-get remove -y "$(dpkg-deb -f ./*.deb Package)"
