@@ -24,6 +24,7 @@ static void RunBinding(MAGITRA_UINPUT *u, const char *text, int action)
         return;
     }
     if (!ActionSessionOk()) return;
+    if (g_log) fprintf(stderr, "magitrad: 操作 %d: キー %s を送ります\n", action, text);
     for (i = 0; i < b.nkeys; i++) UinputKey(u, b.keys[i], 1);
     for (i = b.nkeys - 1; i >= 0; i--) UinputKey(u, b.keys[i], 0);
 }

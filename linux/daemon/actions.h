@@ -10,6 +10,9 @@
 /* exec: の割り当てとランチャーは実行せず、購読しているクライアントへ ACTION <n> として知らせる（main.c が実装） */
 void ActionForward(int action);
 
+/* --log のとき 1（main.c） */
+extern int g_log;
+
 /* キー操作を打つ前の確認。セッションが切り替わっていたら状態を初期化して 0 を返す（main.c が実装） */
 int ActionSessionOk(void);
 

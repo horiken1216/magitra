@@ -66,7 +66,7 @@ static int g_inertia_fd = -1;
 static int g_listen_fd = -1;
 static int g_paused = 0;
 static int g_quit = 0;
-static int g_log = 0;
+int g_log = 0; /* --log。actions.c からも見る */
 static double g_start_ms = 0;
 static double g_last_step_ms = 0;
 
@@ -249,11 +249,15 @@ static int PeerAuthorized(int fd, uid_t *peer)
 void ActionForward(int action)
 {
     char line[32];
-    int i, n = snprintf(line, sizeof(line), "ACTION %d\n", action);
+    int i, sent = 0, n = snprintf(line, sizeof(line), "ACTION %d\n", action);
     for (i = 0; i < MAX_CLIENTS; i++) {
         if (g_clients[i].fd >= 0 && g_clients[i].subscribed && g_active_uid >= 0 && (long)g_clients[i].uid == g_active_uid) {
-            send(g_clients[i].fd, line, (size_t)n, MSG_NOSIGNAL | MSG_DONTWAIT);
+            if (send(g_clients[i].fd, line, (size_t)n, MSG_NOSIGNAL | MSG_DONTWAIT) == n) sent++;
         }
+    }
+    if (g_log || sent == 0) {
+        fprintf(stderr, "magitrad: 操作 %d をトレイに頼みました（%d 個）%s\n", action, sent,
+            sent == 0 ? "。トレイ（magitra-gui）がつながっていないので何も起きない" : "");
     }
 }
 
@@ -348,6 +352,7 @@ static void Command(CLIENT *client, char *line, char *reply, size_t size)
             g_dev.kind == DEVICE_USB ? "usb" : (g_dev.kind == DEVICE_BT ? "bt" : "none"), g_paused);
     } else if (strcmp(line, "SUBSCRIBE") == 0) {
         client->subscribed = 1;
+        if (g_log) fprintf(stderr, "magitrad: トレイが操作の知らせを受け取り始めました（uid=%u）\n", (unsigned)client->uid);
         snprintf(reply, size, "OK");
     } else {
         snprintf(reply, size, "ERR unknown command");
@@ -370,6 +375,7 @@ static void CloseClient(CLIENT *c)
 static void ResetForUserChange(void)
 {
     int i;
+    fprintf(stderr, "magitrad: ログイン中のユーザー・セッションが変わりました（uid=%ld）。設定を既定に戻します\n", g_active_uid);
     ReleaseAll();
     MagitraSettingsDefaults(&g_set);
     ApplySettings();
@@ -391,6 +397,10 @@ static void ConfigLine(CLIENT *c, const char *line, char *reply, size_t size)
         } else {
             MagitraSettingsParse(&g_set, c->config != NULL ? c->config : "");
             ApplySettings();
+            if (g_log) {
+                fprintf(stderr, "magitrad: 設定を受け取りました（Profile=%s TaskView=%s ShowDesktop=%s）\n", g_set.profile,
+                    MagitraSettingsBinding(&g_set, MAGITRA_ACTION_TASK_VIEW), MagitraSettingsBinding(&g_set, MAGITRA_ACTION_SHOW_DESKTOP));
+            }
             snprintf(reply, size, "OK");
         }
         free(c->config);
@@ -467,6 +477,7 @@ static void OnAccept(void)
     int i;
     if (fd < 0) return;
     if (!PeerAuthorized(fd, &uid)) {
+        fprintf(stderr, "magitrad: 接続を断りました（uid=%u、seat0 のアクティブなユーザー=%ld）\n", (unsigned)uid, ActiveUid());
         send(fd, "ERR denied\n", 11, MSG_NOSIGNAL);
         close(fd);
         return;
@@ -476,6 +487,7 @@ static void OnAccept(void)
             g_clients[i].fd = fd;
             g_clients[i].len = 0;
             g_clients[i].uid = uid;
+            if (g_log) fprintf(stderr, "magitrad: クライアントがつながりました（uid=%u）\n", (unsigned)uid);
             return;
         }
     }
