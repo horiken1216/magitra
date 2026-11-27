@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
-project(MAGITRA VERSION 0.1.0 LANGUAGES C CXX)
+# 版。リリース（.github/workflows/release.yml）はタグの版（v を除く）を -DMAGITRA_VERSION で渡す
+set(MAGITRA_VERSION "0.1.0" CACHE STRING "版（.deb と magitrad --version）")
+project(MAGITRA VERSION ${MAGITRA_VERSION} LANGUAGES C CXX)
 
 include(GNUInstallDirs)
 

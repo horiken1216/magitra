@@ -11,6 +11,14 @@ on:
     paths: ['linux/**', 'core/**', 'agent/mtp_gesture.*', 'agent/mtp_momentum.*', 'agent/tests/**', '.github/workflows/linux.yml']
   pull_request:
     paths: ['linux/**', 'core/**', 'agent/mtp_gesture.*', 'agent/mtp_momentum.*', 'agent/tests/**', '.github/workflows/linux.yml']
+  # release.yml から呼ぶ。.deb は同じ実行の成果物（magitra-<profile>-ubuntu<版>-deb）として残り、release.yml が Release に添付する
+  workflow_call:
+    inputs:
+      version:
+        description: 'Package version: a tag such as v0.4.0 (the leading v is dropped). Empty = the default in linux/CMakeLists.txt.'
+        type: string
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -37,7 +45,18 @@ jobs:
             pkg-config dpkg-dev file systemd
 
       - name: Configure
-        run: cmake -S linux -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr -DMAGITRA_DEFAULT_PROFILE=${{ matrix.profile }}
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          extra=()
+          if [ -n "$VERSION" ]; then
+            v="${VERSION#v}"
+            [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "版の形が違います: $VERSION"; exit 1; }
+            extra=(-DMAGITRA_VERSION="$v")
+          fi
+          cmake -S linux -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr \
+            -DMAGITRA_DEFAULT_PROFILE=${{ matrix.profile }} "${extra[@]}"
 
       - name: Build
         run: cmake --build build
