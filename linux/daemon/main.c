@@ -504,6 +504,23 @@ static int Listen(void)
     }
     unlink(g_sock_path);
 
+    /*
+     * ソケットを置くフォルダー。サービスでは systemd が作る（RuntimeDirectory）が、サービスを止めると消えるので、
+     * 手で起動したとき（sudo magitrad --log）は自分で作る。上の階層までは作らない
+     */
+    {
+        char dir[sizeof(g_sock_path)];
+        char *slash;
+        snprintf(dir, sizeof(dir), "%s", g_sock_path);
+        slash = strrchr(dir, '/');
+        if (slash != NULL && slash != dir) {
+            *slash = '\0';
+            if (mkdir(dir, 0755) != 0 && errno != EEXIST) {
+                fprintf(stderr, "magitrad: %s を作れません: %s\n", dir, strerror(errno));
+            }
+        }
+    }
+
     g_listen_fd = socket(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
     if (g_listen_fd < 0) return -1;
     old = umask(0); /* ソケットは 0666。誰が使えるかは接続ごとに確かめる */
