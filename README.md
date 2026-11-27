@@ -2,15 +2,19 @@
 
 # MAGITRA
 
-Apple の Magic Trackpad を、Windows で Mac に近い使い心地で使うための常駐アプリとツール群です。
-USB でつないだトラックパッドから指ごとの位置と圧力を直接読み取り、ポインター・スクロール・ジェスチャー・Force Touch・振動を自前で作ります。
+Apple の Magic Trackpad を、Windows と Linux で Mac に近い使い心地で使うための常駐アプリとツール群です。
+トラックパッドから指ごとの位置と圧力を直接読み取り、ポインター・スクロール・ジェスチャー・Force Touch・振動を自前で作ります。
+Linux 版は USB でも Bluetooth でもそのまま使えます（[LINUX.md](docs/LINUX.md)）。
 
-> **English summary** — MAGITRA is a Windows companion for Apple's Magic Trackpad (USB). It binds Microsoft's signed WinUSB
+> **English summary** — MAGITRA is a Windows and Linux companion for Apple's Magic Trackpad. It binds Microsoft's signed WinUSB
 > driver to the trackpad's multitouch interface, reads raw per-finger frames in user mode, and synthesizes pointer, scrolling
 > (with inertia), pinch-to-zoom, 3/4-finger gestures, Force Touch with haptic feedback, and a gesture-launched app launcher.
 > No custom kernel driver or test-signing mode is required for USB. Bluetooth is available as an advanced option only on PCs
 > that the user has put into test-signing mode (Secure Boot off): the installer then signs and installs MtpBth, a small KMDF
-> driver that opens the trackpad's HID L2CAP channels itself. The UI and documentation are in Japanese.
+> driver that opens the trackpad's HID L2CAP channels itself. On Linux (USB and Bluetooth alike, no driver changes), a sandboxed
+> systemd service reads the trackpad through hidraw, runs the same gesture code, and injects input through uinput; a Qt tray,
+> settings window and launcher run in the user session. .deb packages are provided for Ubuntu 24.04 / 26.04, including an LXQt
+> edition (tested on Lubuntu 26.04). The UI and documentation are in Japanese.
 > License: MIT (the logo is excluded).
 
 <p align="center">
@@ -26,22 +30,25 @@ USB でつないだトラックパッドから指ごとの位置と圧力を直�
 - **3・4 本指ジェスチャー**: 仮想デスクトップの切り替え、タスクビュー、デスクトップの表示、アプリの切り替えなど。割り当ては自由
 - **ランチャー**: 4 本指で上へ払うと、既定のブラウザーと登録したアプリ・フォルダー・URL の一覧が開く
 - **設定画面**: 変えた瞬間に反映される。スライダーごとに既定値へ戻せる
-- **ロック画面でも使える**: ロック中・ログオン前は Windows 標準のマウスに自動で戻る（ポインター移動とクリック）
-- **管理者権限のウィンドウでも使える**: UIAccess 版を導入すると、タスクマネージャーなどでも操作できる
-- **Bluetooth 接続（詳細設定）**: テスト署名モードの PC に限り、Bluetooth でつないだまま同じ機能を使える（[BLUETOOTH.md](docs/BLUETOOTH.md)）
+- **ロック画面でも使える**: Windows はロック中・ログオン前に Windows 標準のマウスに自動で戻る（ポインター移動とクリック）。Linux はロック画面・ログイン画面でもそのまま使える
+- **管理者権限のウィンドウでも使える**（Windows）: UIAccess 版を導入すると、タスクマネージャーなどでも操作できる
+- **Bluetooth 接続**: Linux はそのまま使える。Windows はテスト署名モードの PC に限る詳細設定（[BLUETOOTH.md](docs/BLUETOOTH.md)）
+- **Linux 版・LXQt 版**: Ubuntu 24.04・26.04 向けの .deb がある。LXQt 版はキーの既定値を LXQt に合わせ、設定画面が LXQt の設定センターに出る（[LINUX.md](docs/LINUX.md)・[LXQT.md](docs/LXQT.md)）
 
 ## 必要なもの
 
-- Windows 10 / 11（x64）。Linux 版もある（[LINUX.md](docs/LINUX.md)）
-- Magic Trackpad（Lightning の第 3 世代で確認済み。Magic Trackpad 2 と USB-C の第 4 世代は未確認）と、データ通信ができる USB ケーブル
+- Windows 10 / 11（x64）、または Linux（.deb は Ubuntu 24.04・26.04 とその派生。Lubuntu 26.04 で確認済み。ほかはソースからビルド）
+- Magic Trackpad（Lightning の第 3 世代で確認済み。Magic Trackpad 2 と USB-C の第 4 世代は未確認）。USB でつなぐなら、データ通信ができる USB ケーブル
 - 導入時の管理者権限
 
-**普段は USB 接続で使います。** Bluetooth は、Windows が指ごとのデータを取り出させてくれないため、自作のカーネルドライバーが要ります。
+**Windows では普段は USB 接続で使います。** Bluetooth は、Windows が指ごとのデータを取り出させてくれないため、自作のカーネルドライバーが要ります。
 Microsoft の署名がないので、PC を**テスト署名モード**（Secure Boot をオフ）にした場合だけ、詳細設定として使えます。
 PC の安全性を下げる変更なので、内容を理解したうえで利用者自身が行ってください（[Bluetooth 接続](docs/BLUETOOTH.md)）。
 テスト署名モードでない PC では、Bluetooth でつないだトラックパッドは Windows 標準のマウスとして動きます。
 
 ## 導入
+
+### Windows
 
 1. [Releases](https://github.com/horiken1216/magitra/releases/latest) から `mtpsetup.exe` をダウンロードする
 2. `mtpsetup.exe` を実行し、UIAccess 版か標準版を選ぶ（[導入と取り除き](docs/INSTALL.md)）
@@ -63,6 +70,17 @@ VirusTotal の結果へのリンクを載せています。気になる場合は
 **どちらもセキュリティに関わる変更です。組織が管理する PC では、規定で許されているかを先に確かめてください。**
 取り除けば、トラックパッドは Windows 標準のマウスに戻ります。
 
+### Linux
+
+[Releases](https://github.com/horiken1216/magitra/releases/latest) から、使っている Ubuntu の版に合う `.deb` をダウンロードして入れる
+（Lubuntu 26.04 なら `magitra-lxqt_<版>_ubuntu26.04_amd64.deb`。ほかのデスクトップ環境は `magitra_…`）。
+
+```sh
+sudo apt install ./magitra-lxqt_0.4.0_ubuntu26.04_amd64.deb
+```
+
+常駐サービスが起動し、ログインし直すとトレイに虎のアイコンが出る。詳しくは [LINUX.md](docs/LINUX.md)（困ったときも）。
+
 ## 資料
 
 | 資料 | 内容 |
@@ -72,8 +90,8 @@ VirusTotal の結果へのリンクを載せています。気になる場合は
 | [docs/LINUX.md](docs/LINUX.md) | Linux 版（hidraw と uinput で動く常駐アプリと Qt の設定画面。Bluetooth もそのまま使える。Lubuntu 26.04 で確認済み） |
 | [docs/LXQT.md](docs/LXQT.md) | LXQt 版（Linux 版に LXQt のキーの既定値・設定センターへの登録・`.deb` を足したもの） |
 | [docs/BLUETOOTH.md](docs/BLUETOOTH.md) | Bluetooth 接続（詳細設定）: 引き換えになるもの、テスト署名モードの手順、やめるとき |
-| [docs/BUILD.md](docs/BUILD.md) | ビルドとテスト、フォルダーの構成 |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 仕組みと、そうした理由 |
+| [docs/BUILD.md](docs/BUILD.md) | ビルドとテスト、フォルダーの構成（Windows。Linux のビルドは LINUX.md） |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 仕組みと、そうした理由（Windows。Linux の仕組みと権限の分け方は LINUX.md） |
 | [docs/MANUAL-INSTALL.md](docs/MANUAL-INSTALL.md) | インストーラーを使わない手作業の導入（開発・調査用） |
 | [docs/research/](docs/research/) | 調査記録（レポート形式、振動、ロック画面の切り替え、Bluetooth など）と開発者向けの Bluetooth の手順 |
 
