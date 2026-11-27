@@ -60,9 +60,16 @@ if(MAGITRA_DEFAULT_PROFILE STREQUAL "lxqt")
 endif()
 set(CPACK_PACKAGE_CONTACT "MAGITRA <https://github.com/horiken1216/magitra>")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Apple Magic Trackpad の常駐アプリ（ジェスチャー・Force Touch・慣性スクロール）")
-set(CPACK_PACKAGING_INSTALL_PREFIX "/usr")
+# パッケージ内のパスは configure の prefix と同じにする（サービスファイルの ExecStart は configure 時に決まるため）。
+# .deb を作るときは -DCMAKE_INSTALL_PREFIX=/usr で configure する
+set(CPACK_PACKAGING_INSTALL_PREFIX "${CMAKE_INSTALL_PREFIX}")
+if(NOT CMAKE_INSTALL_PREFIX STREQUAL "/usr")
+    message(STATUS "CMAKE_INSTALL_PREFIX が /usr ではない（${CMAKE_INSTALL_PREFIX}）。.deb を作るなら -DCMAKE_INSTALL_PREFIX=/usr にする")
+endif()
 set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
 set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+# init-system-helpers: postinst などの deb-systemd-helper・deb-systemd-invoke。libglib2.0-bin: ランチャーがアプリを起動する gio
+set(CPACK_DEBIAN_PACKAGE_DEPENDS "init-system-helpers (>= 1.52), libglib2.0-bin")
 set(CPACK_DEBIAN_PACKAGE_SECTION "utils")
-set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA "${CMAKE_CURRENT_SOURCE_DIR}/data/postinst;${CMAKE_CURRENT_SOURCE_DIR}/data/prerm")
+set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA "${CMAKE_CURRENT_SOURCE_DIR}/data/postinst;${CMAKE_CURRENT_SOURCE_DIR}/data/prerm;${CMAKE_CURRENT_SOURCE_DIR}/data/postrm")
 include(CPack)

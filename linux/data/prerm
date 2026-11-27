@@ -1,7 +1,7 @@
 #!/bin/sh
 # 取り除く前に常駐サービスを止める（止めるとトラックパッドはカーネルの hid-magicmouse の動きに戻る）
 set -e
-if [ "$1" = "remove" ] && [ -d /run/systemd/system ]; then
-    systemctl disable --now magitrad.service || true
+if [ -d /run/systemd/system ] && [ "$1" = "remove" ]; then
+    deb-systemd-invoke stop magitrad.service >/dev/null || true
 fi
 exit 0

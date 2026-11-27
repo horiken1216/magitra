@@ -28,7 +28,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends cmake ninja-build qt6-base-dev libsystemd-dev pkg-config dpkg-dev file
 
       - name: Configure
-        run: cmake -S linux -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DMAGITRA_DEFAULT_PROFILE=${{ matrix.profile }}
+        run: cmake -S linux -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr -DMAGITRA_DEFAULT_PROFILE=${{ matrix.profile }}
 
       - name: Build
         run: cmake --build build
@@ -53,6 +53,19 @@ jobs:
           grep -q ' \./usr/lib/systemd/system/magitrad.service$' contents.txt
           grep -q ' \./etc/xdg/autostart/magitra-tray.desktop$' contents.txt
           grep -q ' \./usr/bin/magitrad$' contents.txt
+
+      # .deb だけを入れた状態で確かめる（cmake --install で入れたものが、パッケージの不足やパスのずれを隠さないように消してから）
+      - name: Install the .deb and check it
+        run: |
+          sudo xargs rm -f < build/install_manifest.txt
+          sudo apt-get install -y ./build/*.deb
+          exec_start=$(sed -n 's/^ExecStart=//p' /usr/lib/systemd/system/magitrad.service)
+          test -x "$exec_start"
+          systemd-analyze verify /usr/lib/systemd/system/magitrad.service 2>&1 | tee verify.txt
+          ! grep -v '^$' verify.txt
+          systemctl is-enabled magitrad.service
+          sudo apt-get remove -y "$(dpkg-deb -f build/*.deb Package)"
+          test ! -e /usr/bin/magitrad
 
       - uses: actions/upload-artifact@v4
         with:
