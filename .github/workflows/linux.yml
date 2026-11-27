@@ -34,3 +34,10 @@ jobs:
 
       - name: Install (staging)
         run: DESTDIR="$PWD/stage" cmake --install build && find stage -type f | sort
+
+      # 常駐サービスの unit ファイルを systemd 自身に確かめさせる（知らない指定・誤りは失敗にする）
+      - name: Verify systemd unit
+        run: |
+          sudo cmake --install build
+          systemd-analyze verify /usr/lib/systemd/system/magitrad.service 2>&1 | tee verify.txt
+          ! grep -v '^$' verify.txt
