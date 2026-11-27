@@ -15,6 +15,7 @@
 #include <QProcess>
 #include <QSystemTrayIcon>
 #include <QTimer>
+#include <cstdio>
 #include <unistd.h>
 
 #include "agentclient.h"
@@ -169,6 +170,14 @@ private:
 
 int main(int argc, char *argv[])
 {
+    /*
+     * 常駐サービスは、ログイン中のユーザーからの接続しか受け付けない（root は弾かれる）。
+     * root で起動すると、何も知らされないまま動かないので、起動しない
+     */
+    if (geteuid() == 0) {
+        std::fputs("magitra-gui: root では起動しません。ログインしているユーザーのまま（sudo を付けずに）起動してください\n", stderr);
+        return 1;
+    }
     QApplication app(argc, argv);
     QApplication::setApplicationName(QStringLiteral("magitra-gui"));
     QApplication::setDesktopFileName(QStringLiteral("magitra-gui"));
